@@ -15,6 +15,9 @@ DATA_FILE = 'data.json'
 ALLOWED_STATIC = {'style.css', 'app.js'}
 
 
+# ═══════════════════════════════════════════════════════════════
+# سرو فایل‌های استاتیک
+# ═══════════════════════════════════════════════════════════════
 @app.route('/<path:filename>')
 def serve_file(filename):
     if filename not in ALLOWED_STATIC:
@@ -22,9 +25,9 @@ def serve_file(filename):
     return send_from_directory('.', filename)
 
 
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # مدیریت داده‌ها
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 def load_data():
     if not os.path.exists(DATA_FILE):
         d = _default()
@@ -62,7 +65,7 @@ def add_audit(data, action, username, details):
     data['audit_log'].insert(0, {
         'id': str(uuid.uuid4())[:8], 'action': action,
         'user': username, 'details': details,
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'timestamp': now_str()
     })
     if len(data['audit_log']) > 2000:
         data['audit_log'] = data['audit_log'][:2000]
@@ -72,23 +75,22 @@ def add_notif(data, target_un, message, tid=None):
     data['notifications'].insert(0, {
         'id': str(uuid.uuid4())[:8], 'target_username': target_un,
         'message': message, 'read': False,
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'transfer_id': tid
+        'timestamp': now_str(), 'transfer_id': tid
     })
     if len(data['notifications']) > 500:
         data['notifications'] = data['notifications'][:500]
 
 
 def code_unique(data, code, exclude_emp_id=None, exclude_transfer_id=None):
-    """بررسی یکتایی کد پرسنلی - exclude_transfer_id برای جلوگیری از تداخل با انتقال فعلی"""
+    """بررسی یکتایی کد پرسنلی - exclude_transfer_id باگ اصلی شماره 4 را رفع می‌کند"""
     for s in data['sections'].values():
         for e in s.get('employees', []):
             if e['code'] == code and e['id'] != exclude_emp_id:
                 return False
     for t in data['transfers']:
-        if t['status'] == 'pending' and t['employee']['code'] == code:
-            if exclude_transfer_id and t['id'] == exclude_transfer_id:
-                continue
+        if (t['status'] == 'pending' and
+            t['employee']['code'] == code and
+            t['id'] != exclude_transfer_id):
             return False
     return True
 
@@ -116,88 +118,43 @@ def username_by_id(data, uid):
     return u['username'] if u else None
 
 
-# ═══════════════════════════════════════════
-# تشخیص ستون‌های اکسل (اصلاح‌شده)
-# ═══════════════════════════════════════════
-def detect_columns(headers):
-    """تشخیص هوشمند ستون‌های نام، نام خانوادگی و کد پرسنلی"""
-    name_c, family_c, code_c = None, None, None
-
-    for i, h in enumerate(headers):
-        hc = str(h or '').strip().lower()
-        if not hc:
-            continue
-
-        # --- کد پرسنلی (اولویت بالا) ---
-        if any(kw in hc for kw in ['پرسنلی', 'کد پرسنلی', 'شماره پرسنلی',
-                                     'عضویت', 'رقم العضوية', 'شماره عضویت',
-                                     'کدملی', 'national code', 'staff id',
-                                     'employee id']):
-            if code_c is None:
-                code_c = i
-                continue
-        if any(kw in hc for kw in ['کد', 'شماره', 'code']) and 'خانوادگی' not in hc and 'نام' not in hc:
-            if code_c is None:
-                code_c = i
-                continue
-
-        # --- نام خانوادگی (قبل از نام چک شود) ---
-        if any(kw in hc for kw in ['خانوادگی', 'نام خانوادگی', 'لقب', 'surname',
-                                     'last name', 'family name', 'family']):
-            if family_c is None:
-                family_c = i
-                continue
-
-        # --- نام (فقط اگر خانوادگی نداشته باشد) ---
-        if 'خانوادگی' not in hc and 'وظیف' not in hc and 'شغل' not in hc:
-            if any(kw in hc for kw in ['نام', 'اسم', 'الإسم', 'الاسم', 'name',
-                                         'first name', 'given name']):
-                if name_c is None:
-                    name_c = i
-                    continue
-
-    # --- فال‌بک هوشمند (جلوگیری از تداخل) ---
-    used = set()
-    if name_c is not None:
-        used.add(name_c)
-    if family_c is not None:
-        used.add(family_c)
-    if code_c is not None:
-        used.add(code_c)
-
-    if name_c is None:
-        for i in range(len(headers)):
-            if i not in used:
-                name_c = i
-                used.add(i)
-                break
-        if name_c is None:
-            name_c = 0
-
-    if family_c is None:
-        for i in range(len(headers)):
-            if i not in used:
-                family_c = i
-                used.add(i)
-                break
-        if family_c is None:
-            family_c = 0
-
-    if code_c is None:
-        for i in range(len(headers)):
-            if i not in used:
-                code_c = i
-                used.add(i)
-                break
-        if code_c is None:
-            code_c = min(2, len(headers) - 1)
-
-    return name_c, family_c, code_c
+def now_str():
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 
-# ═══════════════════════════════════════════
+def remove_emp_by_code(data, sid, code):
+    """حذف کارمند از بخش بر اساس کد. True/False"""
+    emps = data['sections'].get(sid, {}).get('employees', [])
+    for i, e in enumerate(emps):
+        if e['code'] == code:
+            emps.pop(i)
+            return True
+    return False
+
+
+def emp_exists_by_code(data, sid, code):
+    """بررسی وجود کارمند در بخش بر اساس کد"""
+    return any(e['code'] == code
+               for e in data['sections'].get(sid, {}).get('employees', []))
+
+
+def return_emp_to_source(data, transfer, ts):
+    """برگرداندن کارمند به بخش مبدأ یا تسویه"""
+    from_s = transfer['from_section']
+    if from_s in data['sections']:
+        if not emp_exists_by_code(data, from_s, transfer['employee']['code']):
+            data['sections'][from_s]['employees'].append(dict(transfer['employee']))
+    else:
+        data['settlements'].append({
+            'id': str(uuid.uuid4())[:8], 'employee': dict(transfer['employee']),
+            'from_section': from_s, 'from_section_name': sec_name(data, from_s),
+            'initiated_by': transfer.get('rejected_by', 'سیستم'), 'timestamp': ts
+        })
+
+
+# ═══════════════════════════════════════════════════════════════
 # دکوراتورها
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 def login_required(f):
     @wraps(f)
     def d(*a, **kw):
@@ -235,6 +192,7 @@ def can_manage(f):
 
 
 def can_accept_transfer(f):
+    """فقط مالک بخش مقصد یا ادمین - بدون محدودیت وضعیت (برای باز-پذیرش/باز-رد)"""
     @wraps(f)
     def d(tid, *a, **kw):
         data = load_data()
@@ -250,9 +208,9 @@ def can_accept_transfer(f):
     return d
 
 
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # صفحات
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 @app.route('/')
 def index():
     if 'username' not in session:
@@ -293,9 +251,9 @@ def logout():
     return redirect(url_for('index'))
 
 
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # احراز هویت
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 @app.route('/api/login', methods=['POST'])
 def api_login():
     data = load_data()
@@ -336,9 +294,9 @@ def api_me():
     })
 
 
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # بخش‌ها
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 @app.route('/api/sections', methods=['GET'])
 @login_required
 def api_get_sections():
@@ -381,23 +339,21 @@ def api_create_section():
 def api_delete_section(sid):
     data = load_data()
     name = data['sections'][sid]['name']
+    # کارکنان باقی‌مانده به تسویه
     for emp in data['sections'][sid].get('employees', []):
         data['settlements'].append({
             'id': str(uuid.uuid4())[:8], 'employee': dict(emp),
             'from_section': sid, 'from_section_name': name,
-            'initiated_by': session['username'],
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'initiated_by': session['username'], 'timestamp': now_str()
         })
+    # انتقال‌های معلق مرتبط رد می‌شوند
     for t in data['transfers']:
         if t['status'] == 'pending' and (t['from_section'] == sid or t['to_section'] == sid):
             t['status'] = 'rejected'
-            t['rejected_by'] = 'سیستم (حذف بخش)'
-            t['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            if t['from_section'] != sid and t['from_section'] in data['sections']:
-                data['sections'][t['from_section']]['employees'].append(t['employee'])
+            return_emp_to_source(data, t, now_str())
     del data['sections'][sid]
     add_audit(data, 'delete_section', session['username'],
-              f'بخش «{name}» حذف شد')
+              f'بخش «{name}» حذف شد (کارکنان به تسویه منتقل شدند)')
     save_data(data)
     return jsonify({'message': 'بخش حذف شد'})
 
@@ -441,11 +397,8 @@ def api_add_employees(sid):
         name = emp.get('name', '').strip()
         family = emp.get('family', '').strip()
         code = emp.get('code', '').strip()
-        if not name and not family:
-            errors.append(f'نام و نام خانوادگی خالی: کد {code}')
-            continue
-        if not code:
-            errors.append(f'کد پرسنلی خالی: {name} {family}')
+        if not name or not family or not code:
+            errors.append(f'اطلاعات ناقص: {name} {family} {code}')
             continue
         if not code_unique(data, code):
             errors.append(f'کد پرسنلی تکراری: {code}')
@@ -461,6 +414,9 @@ def api_add_employees(sid):
     return jsonify({'added': added, 'errors': errors})
 
 
+# ═══════════════════════════════════════════════════════════════
+# آپلود اکسل - رفع باگ شماره 1
+# ═══════════════════════════════════════════════════════════════
 @app.route('/api/sections/<sid>/employees/upload', methods=['POST'])
 @login_required
 @can_manage
@@ -477,29 +433,72 @@ def api_upload_employees(sid):
         ws = wb.active
         headers = [str(c.value or '').strip() for c in ws[1]]
 
-        name_c, family_c, code_c = detect_columns(headers)
+        # ── تشخیص ستون‌ها: پشتیبانی فارسی + عربی + انگلیسی ──
+        name_c, family_c, code_c = None, None, None
 
+        for i, h in enumerate(headers):
+            hl = h.strip().lower()
+            if not hl:
+                continue
+            # خانوادگی (اول بررسی شود - خاص‌تر)
+            if any(k in h for k in ['خانوادگی', 'العائلة', 'لقب']):
+                family_c = i
+            # کد پرسنلی
+            elif any(k in h for k in ['پرسنلی', 'عضوية', 'شخصی', 'موظف']):
+                code_c = i
+            elif hl in ('code', 'id', 'emp_code', 'employee_code', 'employee id'):
+                code_c = i
+            # نام (فقط اگر خانوادگی تا الان پیدا نشده)
+            elif any(k in h for k in ['نام', 'الإسم', 'اسم', 'الاسم']):
+                if family_c is None:
+                    name_c = i
+
+        # ── فالبک: اگر تشخیص ناقص بود از جایگاه استفاده کن ──
+        if name_c is None or family_c is None or code_c is None:
+            # پیدا کردن ستون‌های غیرخالی
+            used = {name_c, family_c, code_c} - {None}
+            cols = [i for i in range(len(headers))
+                    if headers[i].strip() and i not in used]
+            if len(cols) >= 3:
+                if name_c is None: name_c = cols[0]
+                if family_c is None: family_c = cols[1]
+                if code_c is None: code_c = cols[2]
+            else:
+                # آخرین راه: ستون‌های 0, 1, 2
+                name_c = name_c if name_c is not None else 0
+                family_c = family_c if family_c is not None else 1
+                code_c = code_c if code_c is not None else 2
+
+        # ── خواندن داده‌ها ──
         added, errors = [], []
         for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             if not row or all(c is None for c in row):
                 continue
-            name = str(row[name_c] or '').strip() if name_c < len(row) else ''
-            family = str(row[family_c] or '').strip() if family_c < len(row) else ''
-            code = str(row[code_c] or '').strip() if code_c < len(row) else ''
+            try:
+                name = str(row[name_c] or '').strip() if name_c < len(row) else ''
+            except (IndexError, TypeError):
+                name = ''
+            try:
+                family = str(row[family_c] or '').strip() if family_c < len(row) else ''
+            except (IndexError, TypeError):
+                family = ''
+            try:
+                code = str(row[code_c] or '').strip() if code_c < len(row) else ''
+            except (IndexError, TypeError):
+                code = ''
+
             if not name and not family and not code:
                 continue
-            if not name and not family:
-                errors.append(f'ردیف {row_idx}: نام و نام خانوادگی خالی (کد: {code})')
-                continue
-            if not code:
-                errors.append(f'ردیف {row_idx}: کد پرسنلی خالی ({name} {family})')
+            if not name or not family or not code:
+                errors.append(f'ردیف {row_idx}: اطلاعات ناقص')
                 continue
             if not code_unique(data, code):
-                errors.append(f'ردیف {row_idx}: کد پرسنلی تکراری {code}')
+                errors.append(f'ردیف {row_idx}: کد تکراری {code}')
                 continue
             new_emp = {'id': str(uuid.uuid4())[:8], 'name': name, 'family': family, 'code': code}
             data['sections'][sid]['employees'].append(new_emp)
             added.append(new_emp)
+
         if added:
             sname = data['sections'][sid]['name']
             msg = f'{len(added)} نفر از فایل به بخش «{sname}» اضافه شدند'
@@ -544,12 +543,8 @@ def api_export_section(sid):
     for e in emps:
         ws.append([e['name'], e['family'], e['code']])
     for col in ws.columns:
-        mx = 0
-        cl = col[0].column_letter
-        for cell in col:
-            if cell.value:
-                mx = max(mx, len(str(cell.value)))
-        ws.column_dimensions[cl].width = max(mx + 4, 14)
+        mx = max((len(str(c.value or '')) for c in col), default=0)
+        ws.column_dimensions[col[0].column_letter].width = max(mx + 4, 14)
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -557,9 +552,9 @@ def api_export_section(sid):
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
-# ═══════════════════════════════════════════
-# انتقال‌ها
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# انتقال‌ها - رفع باگ شماره 4
+# ═══════════════════════════════════════════════════════════════
 @app.route('/api/transfers', methods=['GET'])
 @login_required
 def api_get_transfers():
@@ -598,8 +593,9 @@ def api_create_transfer():
     from_name = data['sections'][from_s]['name']
     to_name = data['sections'][to_s]['name']
     emp_copy = dict(emp)
+    ts = now_str()
 
-    # ادمین: انتقال مستقیم
+    # ادمین: انتقال مستقیم بدون نیاز به تایید
     if session['role'] == 'admin':
         if not code_unique(data, emp['code'], exclude_emp_id=emp['id']):
             return jsonify({'error': f'کد پرسنلی {emp["code"]} در بخش مقصد تکراری است'}), 400
@@ -609,8 +605,9 @@ def api_create_transfer():
             'id': str(uuid.uuid4())[:8], 'employee': emp_copy,
             'from_section': from_s, 'to_section': to_s,
             'status': 'completed', 'initiated_by': session['username'],
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'completed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'timestamp': ts, 'completed_at': ts,
+            'history': [{'action': 'completed', 'by': session['username'],
+                         'at': ts, 'detail': 'انتقال مستقیم توسط مدیر'}]
         }
         data['transfers'].append(transfer)
         add_audit(data, 'transfer', session['username'],
@@ -618,18 +615,20 @@ def api_create_transfer():
         dest_un = username_by_id(data, data['sections'][to_s].get('owner'))
         if dest_un:
             add_notif(data, dest_un,
-                      f'«{emp["name"]} {emp["family"]}» توسط مدیر به بخش «{to_name}» اضافه شد',
+                      f'«{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) توسط مدیر به بخش «{to_name}» اضافه شد',
                       transfer['id'])
         save_data(data)
         return jsonify(transfer)
 
-    # کاربر: انتقال با تایید
+    # کاربر عادی: انتقال با نیاز به تایید
     emps.remove(emp)
     transfer = {
         'id': str(uuid.uuid4())[:8], 'employee': emp_copy,
         'from_section': from_s, 'to_section': to_s,
         'status': 'pending', 'initiated_by': session['username'],
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'timestamp': ts,
+        'history': [{'action': 'initiated', 'by': session['username'],
+                     'at': ts, 'detail': 'درخواست انتقال ایجاد شد'}]
     }
     data['transfers'].append(transfer)
     add_audit(data, 'transfer_initiated', session['username'],
@@ -647,43 +646,65 @@ def api_create_transfer():
 @login_required
 @can_accept_transfer
 def api_accept_transfer(tid):
+    """پذیرش انتقال - یا باز-پذیرش انتقال ردشده"""
     data = load_data()
     transfer = next((t for t in data['transfers'] if t['id'] == tid), None)
     if not transfer:
         return jsonify({'error': 'انتقال یافت نشد'}), 404
-    if transfer['status'] not in ('pending', 'rejected'):
-        return jsonify({'error': 'این انتقال قبلاً پردازش شده'}), 400
 
-    # اگر رد شده بود، کارمند باید از مبدأ برداشته شود
-    if transfer['status'] == 'rejected':
-        emp_code = transfer['employee']['code']
-        emp_id = transfer['employee']['id']
-        found = False
-        if transfer['from_section'] in data['sections']:
-            emps = data['sections'][transfer['from_section']]['employees']
-            emp = next((e for e in emps if e['id'] == emp_id), None)
-            if emp:
-                emps.remove(emp)
-                found = True
-        if not found:
-            return jsonify({'error': 'کارمند دیگر در بخش مبدأ وجود ندارد (شاید قبلاً منتقل شده)'}), 400
+    ts = now_str()
+    emp = transfer['employee']
+    from_s = transfer['from_section']
+    to_s = transfer['to_section']
 
-    # بررسی یکتایی - با استثنای انتقال خودش
-    if not code_unique(data, transfer['employee']['code'], exclude_transfer_id=tid):
-        return jsonify({'error': 'کد پرسنلی در بخش شما تکراری است. انتقال امکان‌پذیر نیست.'}), 400
+    # ── حالت 1: pending → accepted ──
+    if transfer['status'] == 'pending':
+        # FIX اصلی: exclude_transfer_id را پاس می‌دهیم تا این انتقال خودش حساب نشود
+        if not code_unique(data, emp['code'], exclude_transfer_id=tid):
+            return jsonify({'error': 'کد پرسنلی تکراری در بخش شما وجود دارد. ابتدا کد تکراری را برطرف کنید.'}), 400
+        # حذف از مبدأ (احتیاطی)
+        remove_emp_by_code(data, from_s, emp['code'])
+        # افزودن به مقصد
+        data['sections'][to_s]['employees'].append(dict(emp))
+        transfer['status'] = 'accepted'
+        transfer['accepted_by'] = session['username']
+        transfer['completed_at'] = ts
+        transfer['history'].append({
+            'action': 'accepted', 'by': session['username'],
+            'at': ts, 'detail': 'انتقال پذیرفته شد'
+        })
 
-    data['sections'][transfer['to_section']]['employees'].append(transfer['employee'])
-    transfer['status'] = 'accepted'
-    transfer['accepted_by'] = session['username']
-    transfer['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    fn = sec_name(data, transfer['from_section'])
-    tn = sec_name(data, transfer['to_section'])
+    # ── حالت 2: rejected → accepted (باز-پذیرش) ──
+    elif transfer['status'] == 'rejected':
+        if not emp_exists_by_code(data, from_s, emp['code']):
+            return jsonify({'error': 'کارمند دیگر در بخش مبدأ وجود ندارد. امکان باز-پذیرش نیست.'}), 400
+        if not code_unique(data, emp['code'], exclude_transfer_id=tid):
+            return jsonify({'error': 'کد پرسنلی تکراری در بخش شما وجود دارد.'}), 400
+        remove_emp_by_code(data, from_s, emp['code'])
+        data['sections'][to_s]['employees'].append(dict(emp))
+        transfer['status'] = 'accepted'
+        transfer['accepted_by'] = session['username']
+        transfer['completed_at'] = ts
+        transfer['history'].append({
+            'action': 're-accepted', 'by': session['username'],
+            'at': ts, 'detail': 'پس از رد، مجدداً پذیرفته شد'
+        })
+
+    elif transfer['status'] == 'accepted':
+        return jsonify({'error': 'این انتقال قبلاً پذیرفته شده است'}), 400
+    elif transfer['status'] == 'completed':
+        return jsonify({'error': 'این انتقال توسط مدیر انجام شده و قابل تغییر نیست'}), 400
+    else:
+        return jsonify({'error': 'وضعیت نامعتبر'}), 400
+
+    fn = sec_name(data, from_s)
+    tn = sec_name(data, to_s)
     add_audit(data, 'transfer_accepted', session['username'],
-              f'«{transfer["employee"]["name"]} {transfer["employee"]["family"]}» (کد: {transfer["employee"]["code"]}) از «{fn}» به «{tn}» پذیرفته شد')
-    src_un = username_by_id(data, data['sections'].get(transfer['from_section'], {}).get('owner'))
+              f'«{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) از «{fn}» به «{tn}» پذیرفته شد')
+    src_un = username_by_id(data, data['sections'].get(from_s, {}).get('owner'))
     if src_un:
         add_notif(data, src_un,
-                  f'«{transfer["employee"]["name"]} {transfer["employee"]["family"]}» (کد: {transfer["employee"]["code"]}) توسط بخش «{tn}» پذیرفته شد',
+                  f'«{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) توسط بخش «{tn}» پذیرفته شد',
                   tid)
     save_data(data)
     return jsonify(transfer)
@@ -693,81 +714,72 @@ def api_accept_transfer(tid):
 @login_required
 @can_accept_transfer
 def api_reject_transfer(tid):
+    """رد انتقال - یا باز-رد انتقال پذیرفتهشده"""
     data = load_data()
     transfer = next((t for t in data['transfers'] if t['id'] == tid), None)
     if not transfer:
         return jsonify({'error': 'انتقال یافت نشد'}), 404
-    if transfer['status'] not in ('pending', 'rejected'):
-        return jsonify({'error': 'این انتقال قبلاً پردازش شده'}), 400
 
-    # اگر قبلاً رد نشده، کارمند به مبدأ برمی‌گردد
+    ts = now_str()
+    emp = transfer['employee']
+    from_s = transfer['from_section']
+    to_s = transfer['to_section']
+
+    # ── حالت 1: pending → rejected ──
     if transfer['status'] == 'pending':
-        if transfer['from_section'] in data['sections']:
-            emp_id = transfer['employee']['id']
-            already = any(e['id'] == emp_id
-                         for e in data['sections'][transfer['from_section']]['employees'])
-            if not already:
-                data['sections'][transfer['from_section']]['employees'].append(transfer['employee'])
+        return_emp_to_source(data, transfer, ts)
+        transfer['status'] = 'rejected'
+        transfer['rejected_by'] = session['username']
+        transfer['completed_at'] = ts
+        transfer['history'].append({
+            'action': 'rejected', 'by': session['username'],
+            'at': ts, 'detail': 'انتقال رد شد'
+        })
 
-    transfer['status'] = 'rejected'
-    transfer['rejected_by'] = session['username']
-    transfer['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # ── حالت 2: accepted → rejected (باز-رد) ──
+    elif transfer['status'] == 'accepted':
+        if not emp_exists_by_code(data, to_s, emp['code']):
+            return jsonify({'error': 'کارمند دیگر در بخش شما وجود ندارد. امکان باز-رد نیست.'}), 400
+        remove_emp_by_code(data, to_s, emp['code'])
+        # برگشت به مبدأ یا تسویه
+        if from_s in data['sections']:
+            if not emp_exists_by_code(data, from_s, emp['code']):
+                data['sections'][from_s]['employees'].append(dict(emp))
+        else:
+            data['settlements'].append({
+                'id': str(uuid.uuid4())[:8], 'employee': dict(emp),
+                'from_section': to_s, 'from_section_name': sec_name(data, to_s),
+                'initiated_by': session['username'], 'timestamp': ts
+            })
+        transfer['status'] = 'rejected'
+        transfer['rejected_by'] = session['username']
+        transfer['completed_at'] = ts
+        transfer['history'].append({
+            'action': 're-rejected', 'by': session['username'],
+            'at': ts, 'detail': 'پس از پذیرش، مجدداً رد شد'
+        })
+
+    elif transfer['status'] == 'rejected':
+        return jsonify({'error': 'این انتقال قبلاً رد شده. از دکمه «پذیرش» برای تغییر نظر استفاده کنید.'}), 400
+    elif transfer['status'] == 'completed':
+        return jsonify({'error': 'این انتقال توسط مدیر انجام شده و قابل تغییر نیست'}), 400
+    else:
+        return jsonify({'error': 'وضعیت نامعتبر'}), 400
+
     add_audit(data, 'transfer_rejected', session['username'],
-              f'انتقال «{transfer["employee"]["name"]} {transfer["employee"]["family"]}» (کد: {transfer["employee"]["code"]}) رد شد')
-    src_un = username_by_id(data, data['sections'].get(transfer['from_section'], {}).get('owner'))
+              f'انتقال «{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) رد شد')
+    src_un = username_by_id(data, data['sections'].get(from_s, {}).get('owner'))
     if src_un:
         add_notif(data, src_un,
-                  f'درخواست انتقال «{transfer["employee"]["name"]} {transfer["employee"]["family"]}» رد شد',
+                  f'درخواست انتقال «{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) رد شد',
                   tid)
     save_data(data)
     return jsonify(transfer)
 
 
-@app.route('/api/transfers/<tid>/retry', methods=['POST'])
-@login_required
-def api_retry_transfer(tid):
-    """بازگرداندن انتقال ردشده به حالت در انتظار"""
-    data = load_data()
-    transfer = next((t for t in data['transfers'] if t['id'] == tid), None)
-    if not transfer:
-        return jsonify({'error': 'انتقال یافت نشد'}), 404
-    if transfer['status'] != 'rejected':
-        return jsonify({'error': 'فقط انتقال‌های ردشده قابل تلاش مجدد هستند'}), 400
-
-    # بررسی دسترسی: مبدأ یا مقصد یا ادمین
-    if session['role'] != 'admin':
-        my_secs = [sid for sid, s in data['sections'].items()
-                    if s.get('owner') == session.get('user_id')]
-        if transfer['from_section'] not in my_secs and transfer['to_section'] not in my_secs:
-            return jsonify({'error': 'دسترسی محدود است'}), 403
-
-    # کارمند را از مبدأ بردار
-    emp_id = transfer['employee']['id']
-    if transfer['from_section'] in data['sections']:
-        emps = data['sections'][transfer['from_section']]['employees']
-        emp = next((e for e in emps if e['id'] == emp_id), None)
-        if emp:
-            emps.remove(emp)
-        else:
-            return jsonify({'error': 'کارمند دیگر در بخش مبدأ وجود ندارد'}), 400
-
-    transfer['status'] = 'pending'
-    transfer['completed_at'] = None
-    transfer['rejected_by'] = None
-    add_audit(data, 'transfer_retry', session['username'],
-              f'تلاش مجدد انتقال «{transfer["employee"]["name"]} {transfer["employee"]["family"]}» (کد: {transfer["employee"]["code"]})')
-    dest_un = username_by_id(data, data['sections'].get(transfer['to_section'], {}).get('owner'))
-    if dest_un:
-        add_notif(data, dest_un,
-                  f'درخواست مجدد انتقال: «{transfer["employee"]["name"]} {transfer["employee"]["family"]}» (کد: {transfer["employee"]["code"]}) منتظر تایید شماست',
-                  tid)
-    save_data(data)
-    return jsonify(transfer)
-
-
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # تسویه‌ها
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 @app.route('/api/settlements', methods=['GET'])
 @login_required
 def api_get_settlements():
@@ -799,8 +811,7 @@ def api_create_settlement():
     settlement = {
         'id': str(uuid.uuid4())[:8], 'employee': dict(emp),
         'from_section': from_s, 'from_section_name': sname,
-        'initiated_by': session['username'],
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'initiated_by': session['username'], 'timestamp': now_str()
     }
     data['settlements'].append(settlement)
     add_audit(data, 'settlement', session['username'],
@@ -823,12 +834,8 @@ def api_export_settlements():
                    s['employee']['code'], s['from_section_name'],
                    s['timestamp'], s['initiated_by']])
     for col in ws.columns:
-        mx = 0
-        cl = col[0].column_letter
-        for cell in col:
-            if cell.value:
-                mx = max(mx, len(str(cell.value)))
-        ws.column_dimensions[cl].width = max(mx + 4, 14)
+        mx = max((len(str(c.value or '')) for c in col), default=0)
+        ws.column_dimensions[col[0].column_letter].width = max(mx + 4, 14)
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -836,9 +843,9 @@ def api_export_settlements():
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # کاربران
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 @app.route('/api/users', methods=['GET'])
 @admin_required
 def api_get_users():
@@ -895,7 +902,7 @@ def api_update_user(uid):
     if 'display_name' in req:
         u['display_name'] = req['display_name'].strip() or u['username']
     add_audit(data, 'update_user', session['username'],
-              f'اطلاعات کاربر «{u["display_name"]}» ویرایش شد')
+              f'اطلاعات کاربر «{u["display_name"]}» ({u["username"]}) ویرایش شد')
     save_data(data)
     return jsonify({'id': uid, 'username': u['username'],
                     'display_name': u['display_name']})
@@ -912,15 +919,15 @@ def api_delete_user(uid):
         if s.get('owner') == uid:
             s['owner'] = None
     add_audit(data, 'delete_user', session['username'],
-              f'کاربر «{u["display_name"]}» حذف شد')
+              f'کاربر «{u["display_name"]}» ({u["username"]}) حذف شد - بخش‌ها به مدیر منتقل شدند')
     del data['users'][uid]
     save_data(data)
     return jsonify({'message': 'کاربر حذف شد'})
 
 
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # اعلان‌ها
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 @app.route('/api/notifications', methods=['GET'])
 @login_required
 def api_get_notifications():
@@ -952,9 +959,9 @@ def api_read_all_notifs():
     return jsonify({'message': 'ok'})
 
 
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # گزارش تغییرات
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 @app.route('/api/audit-log', methods=['GET'])
 @admin_required
 def api_get_audit():
@@ -974,12 +981,8 @@ def api_export_audit():
     for i, log in enumerate(data.get('audit_log', []), 1):
         ws.append([i, log['timestamp'], log['action'], log['user'], log['details']])
     for col in ws.columns:
-        mx = 0
-        cl = col[0].column_letter
-        for cell in col:
-            if cell.value:
-                mx = max(mx, len(str(cell.value)))
-        ws.column_dimensions[cl].width = max(mx + 4, 14)
+        mx = max((len(str(c.value or '')) for c in col), default=0)
+        ws.column_dimensions[col[0].column_letter].width = max(mx + 4, 14)
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -987,9 +990,9 @@ def api_export_audit():
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # تغییر رمز مدیر
-# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 @app.route('/api/admin/change-password', methods=['POST'])
 @admin_required
 def api_change_pw():
@@ -1007,5 +1010,7 @@ def api_change_pw():
     return jsonify({'message': 'تغییر کرد'})
 
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
