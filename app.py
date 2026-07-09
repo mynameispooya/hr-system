@@ -1,20 +1,31 @@
-import json, os, uuid
+import json
+import os
+import uuid
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import (Flask, Response, request, jsonify,
-                   session, send_file, redirect, url_for)
+from flask import (Flask, Response, request, jsonify, session,
+                   send_file, send_from_directory, redirect, url_for, abort)
 from io import BytesIO
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='.', static_folder='.')
 app.secret_key = os.urandom(24).hex()
 app.permanent_session_lifetime = timedelta(hours=8)
 
 DATA_FILE = 'data.json'
+ALLOWED_STATIC = {'style.css', 'app.js'}
 
-# ═══════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════
+# سرو فایل‌های استاتیک از پوشه فعلی
+# ═══════════════════════════════════════════
+@app.route('/<path:filename>')
+def serve_file(filename):
+    if filename not in ALLOWED_STATIC:
+        abort(404)
+    return send_from_directory('.', filename)
+
+# ═══════════════════════════════════════════
 # مدیریت داده‌ها
-# ═══════════════════════════════════════════════════════════════
-
+# ═══════════════════════════════════════════
 def load_data():
     if not os.path.exists(DATA_FILE):
         d = _default()
@@ -77,7 +88,7 @@ def code_unique(data, code, exclude_id=None):
 def sec_name(data, sid):
     return data['sections'].get(sid, {}).get('name', 'نامشخص')
 
-def owner_name(data, oid):
+def owner_display(data, oid):
     if oid is None:
         return 'مدیر سیستم'
     u = data['users'].get(oid)
@@ -89,16 +100,13 @@ def user_by_un(data, un):
             return uid, u
     return None, None
 
-def owner_of_section(data, sid):
-    s = data['sections'].get(sid)
-    if not s:
-        return None
-    return s.get('owner')
+def username_by_id(data, uid):
+    u = data['users'].get(uid)
+    return u['username'] if u else None
 
-# ═══════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════
 # دکوراتورها
-# ═══════════════════════════════════════════════════════════════
-
+# ═══════════════════════════════════════════
 def login_required(f):
     @wraps(f)
     def d(*a, **kw):
@@ -118,493 +126,44 @@ def admin_required(f):
         return f(*a, **kw)
     return d
 
-def can_manage_section(f):
-    """بررسی اینکه آیا کاربر می‌تواند بخش را مدیریت کند"""
+def can_manage(f):
+    """فقط مالک بخش یا ادمین"""
     @wraps(f)
     def d(sid, *a, **kw):
         data = load_data()
         if sid not in data['sections']:
             return jsonify({'error': 'بخش یافت نشد'}), 404
-        if session['role'] == 'admin':
+        if session.get('role') == 'admin':
             return f(sid, *a, **kw)
-        s = data['sections'][sid]
-        if s.get('owner') != session.get('user_id'):
-            return jsonify({'error': 'دسترسی محدود است'}), 403
+        sec = data['sections'][sid]
+        if sec.get('owner') != session.get('user_id'):
+            return jsonify({'error': 'شما مالک این بخش نیستید'}), 403
         return f(sid, *a, **kw)
     return d
 
-# ═══════════════════════════════════════════════════════════════
-# CSS
-# ═══════════════════════════════════════════════════════════════
+def can_accept_transfer(f):
+    """فقط مالک بخش مقصد یا ادمین"""
+    @wraps(f)
+    def d(tid, *a, **kw):
+        data = load_data()
+        tr = next((t for t in data['transfers'] if t['id'] == tid), None)
+        if not tr:
+            return jsonify({'error': 'انتقال یافت نشد'}), 404
+        if session.get('role') == 'admin':
+            return f(tid, *a, **kw)
+        sec = data['sections'].get(tr['to_section'])
+        if not sec or sec.get('owner') != session.get('user_id'):
+            return jsonify({'error': 'فقط مالک بخش مقصد می‌تواند تایید کند'}), 403
+        return f(tid, *a, **kw)
+    return d
 
-CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap');
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
---bg0:#080b16;--bg1:#0f1225;--bg2:#161a33;--bg3:#1c2144;--bgH:#232849;
---ac:#00e5a0;--acH:#00cc8e;--acD:rgba(0,229,160,.08);--acB:rgba(0,229,160,.3);
---dn:#ff4757;--dnH:#e8384a;--dnD:rgba(255,71,87,.08);--dnB:rgba(255,71,87,.3);
---wn:#ffa502;--wnD:rgba(255,165,2,.08);--wnB:rgba(255,165,2,.3);
---inf:#3b82f6;--infD:rgba(59,130,246,.08);--infB:rgba(59,130,246,.3);
---t1:#e8eaf6;--t2:#7c82a1;--t3:#4a4f6a;
---bd:#232849;--bdL:#2d3360;
---r:12px;--rs:8px;--rx:6px;
---sh:0 4px 24px rgba(0,0,0,.3);--shL:0 8px 40px rgba(0,0,0,.5);
---tr:.2s ease;--ff:'Vazirmatn',sans-serif
-}
-html{font-size:14px;direction:rtl}
-body{font-family:var(--ff);background:var(--bg0);color:var(--t1);min-height:100vh;line-height:1.7;-webkit-font-smoothing:antialiased}
-::-webkit-scrollbar{width:6px;height:6px}
-::-webkit-scrollbar-track{background:var(--bg1)}
-::-webkit-scrollbar-thumb{background:var(--bdL);border-radius:3px}
-a{color:var(--ac);text-decoration:none}a:hover{color:var(--acH)}
-input,select,textarea{font-family:var(--ff);font-size:.93rem;padding:10px 14px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rs);color:var(--t1);outline:none;transition:border-color var(--tr),box-shadow var(--tr);width:100%}
-input:focus,select:focus,textarea:focus{border-color:var(--ac);box-shadow:0 0 0 3px var(--acD)}
-input::placeholder{color:var(--t3)}
-select{cursor:pointer;appearance:none;padding-left:36px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%237c82a1' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 5.5l6.5 6 6.5-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:left 12px center}
-input[type="file"]{padding:8px;cursor:pointer}
-input[type="file"]::file-selector-button{font-family:var(--ff);padding:6px 16px;margin-left:12px;background:var(--bg3);border:1px solid var(--bdL);border-radius:var(--rx);color:var(--t2);cursor:pointer;transition:all var(--tr)}
-input[type="file"]::file-selector-button:hover{background:var(--bgH);color:var(--t1)}
-.btn{display:inline-flex;align-items:center;gap:6px;font-family:var(--ff);font-size:.9rem;font-weight:500;padding:9px 20px;border:none;border-radius:var(--rs);cursor:pointer;transition:all var(--tr);white-space:nowrap}
-.btn:active{transform:scale(.97)}
-.btn-p{background:var(--ac);color:#080b16}.btn-p:hover{background:var(--acH);box-shadow:0 0 20px rgba(0,229,160,.2)}
-.btn-d{background:var(--dn);color:#fff}.btn-d:hover{background:var(--dnH);box-shadow:0 0 20px rgba(255,71,87,.2)}
-.btn-g{background:transparent;color:var(--t2);border:1px solid var(--bd)}.btn-g:hover{background:var(--bgH);color:var(--t1);border-color:var(--bdL)}
-.btn-sm{padding:6px 12px;font-size:.82rem}.btn-ic{padding:7px 9px}
-.btn:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
-.card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:24px;transition:border-color var(--tr)}.card:hover{border-color:var(--bdL)}
-.tw{overflow-x:auto;border-radius:var(--rs);border:1px solid var(--bd)}
-table{width:100%;border-collapse:collapse}
-th{background:var(--bg3);color:var(--t2);font-weight:600;font-size:.82rem;text-align:right;padding:12px 16px;border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:1}
-td{padding:11px 16px;border-bottom:1px solid var(--bd);font-size:.9rem;vertical-align:middle}
-tr:last-child td{border-bottom:none}tr:hover td{background:var(--bgH)}
-tr[draggable="true"]{cursor:grab}tr[draggable="true"]:active{cursor:grabbing}
-tr.dragging{opacity:.4}tr.drag-over td{background:var(--acD);box-shadow:inset 0 0 0 1px var(--acB)}
-.es{text-align:center;padding:48px 24px;color:var(--t3)}.es .ei{font-size:3rem;margin-bottom:12px;opacity:.4}
-.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:600}
-.b-pen{background:var(--wnD);color:var(--wn);border:1px solid var(--wnB)}
-.b-acc,.b-com{background:var(--acD);color:var(--ac);border:1px solid var(--acB)}
-.b-rej{background:var(--dnD);color:var(--dn);border:1px solid var(--dnB)}
-.header{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:64px;background:var(--bg1);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:100}
-.hlogo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.05rem}
-.hlogo .lb{width:34px;height:34px;background:var(--ac);border-radius:var(--rs);display:flex;align-items:center;justify-content:center;color:#080b16;font-weight:900;font-size:1.1rem}
-.hacts{display:flex;align-items:center;gap:12px}
-.huser{color:var(--t2);font-size:.88rem}
-.nbtn{position:relative;background:none;border:none;color:var(--t2);cursor:pointer;padding:8px;border-radius:var(--rs);transition:all var(--tr);font-size:1.2rem}
-.nbtn:hover{background:var(--bgH);color:var(--t1)}
-.nbdg{position:absolute;top:2px;left:2px;width:18px;height:18px;background:var(--dn);color:#fff;font-size:.65rem;font-weight:700;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid var(--bg1)}
-.ndd{position:absolute;top:calc(100% + 8px);left:0;width:360px;max-height:420px;overflow-y:auto;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);box-shadow:var(--shL);display:none;z-index:200}
-.ndd.show{display:block;animation:fsd .2s ease}
-.nddh{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--bd)}
-.nddh h4{font-size:.9rem;font-weight:600}
-.ni{padding:12px 16px;border-bottom:1px solid var(--bd);font-size:.85rem;color:var(--t2);transition:background var(--tr);cursor:pointer}
-.ni:hover{background:var(--bgH)}.ni.ur{background:var(--acD);border-right:3px solid var(--ac)}
-.ni .nt{font-size:.75rem;color:var(--t3);margin-top:4px;display:block}
-.ne{padding:32px;text-align:center;color:var(--t3);font-size:.88rem}
-.layout{display:flex;min-height:calc(100vh - 64px)}
-.sidebar{width:240px;min-width:240px;background:var(--bg1);border-left:1px solid var(--bd);padding:16px 0;display:flex;flex-direction:column}
-.snav{flex:1;padding:0 8px}
-.si{display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:var(--rs);color:var(--t2);cursor:pointer;transition:all var(--tr);font-size:.9rem;font-weight:500;margin-bottom:2px;border:none;background:none;width:100%;text-align:right;font-family:var(--ff)}
-.si:hover{background:var(--bgH);color:var(--t1)}
-.si.active{background:var(--acD);color:var(--ac);border:1px solid var(--acB)}
-.si .ii{font-size:1.1rem;width:22px;text-align:center}
-.sft{padding:8px;border-top:1px solid var(--bd);margin-top:8px}
-.main{flex:1;padding:24px;overflow-y:auto;max-height:calc(100vh - 64px)}
-.page{display:none;animation:fi .3s ease}.page.active{display:block}
-.pt{font-size:1.4rem;font-weight:700;margin-bottom:20px}
-.sg{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:28px}
-.sc{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:20px;display:flex;flex-direction:column;gap:8px;transition:border-color var(--tr),transform var(--tr)}
-.sc:hover{border-color:var(--bdL);transform:translateY(-2px)}
-.sl{font-size:.82rem;color:var(--t3);font-weight:500}
-.sv{font-size:1.8rem;font-weight:800}
-.sv.a1{color:var(--ac)}.sv.w1{color:var(--wn)}.sv.d1{color:var(--dn)}.sv.i1{color:var(--inf)}
-.tb{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
-.tb .sb{position:relative;flex:1;min-width:200px;max-width:320px}
-.tb .sb input{padding-right:38px}
-.tb .sb .sic{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--t3);font-size:.95rem;pointer-events:none}
-.tb-sp{flex:1}
-.sec-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
-.secc{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:20px;cursor:pointer;transition:all var(--tr);position:relative}
-.secc:hover{border-color:var(--acB);transform:translateY(-2px);box-shadow:0 4px 20px rgba(0,229,160,.08)}
-.secc .sn{font-weight:700;font-size:1rem;margin-bottom:6px}
-.secc .scn{color:var(--t3);font-size:.85rem}.secc .scn span{color:var(--ac);font-weight:700}
-.secc .sow{color:var(--t3);font-size:.78rem;margin-top:4px}
-.secc .xsec{position:absolute;top:12px;left:12px;background:none;border:none;color:var(--t3);cursor:pointer;padding:4px;border-radius:4px;transition:all var(--tr);font-size:1rem}
-.secc .xsec:hover{color:var(--dn);background:var(--dnD)}
-.dzs{display:flex;gap:14px;margin-top:20px}
-.dz{flex:1;border:2px dashed var(--bdL);border-radius:var(--r);padding:28px 20px;text-align:center;transition:all var(--tr);color:var(--t3);min-height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
-.dz .di{font-size:2rem;opacity:.5}.dz .dl{font-size:.9rem;font-weight:500}.dz .dh{font-size:.78rem;opacity:.6}
-.dz.da{border-color:var(--ac);background:var(--acD);color:var(--ac)}.dz.da .di{opacity:1}
-.dz.sz.da{border-color:var(--wn);background:var(--wnD);color:var(--wn)}
-.mo{position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:500;padding:24px}
-.mo.active{display:flex;animation:fi .2s ease}
-.md{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);width:100%;max-width:520px;max-height:85vh;overflow-y:auto;box-shadow:var(--shL);animation:si .25s ease}
-.mh{display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid var(--bd)}
-.mh h3{font-size:1.1rem;font-weight:700}
-.mx{background:none;border:none;color:var(--t3);cursor:pointer;font-size:1.3rem;padding:4px;border-radius:4px;transition:all var(--tr);line-height:1}
-.mx:hover{color:var(--t1);background:var(--bgH)}
-.mb{padding:24px}.mf{padding:16px 24px;border-top:1px solid var(--bd);display:flex;gap:10px;justify-content:flex-start}
-.fg{margin-bottom:16px}.fl{display:block;font-size:.85rem;font-weight:600;color:var(--t2);margin-bottom:6px}
-.fr{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.fh{font-size:.78rem;color:var(--t3);margin-top:4px}
-.fe{font-size:.82rem;color:var(--dn);margin-top:4px}
-#tc{position:fixed;top:80px;left:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:380px}
-.ts{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-radius:var(--rs);font-size:.88rem;box-shadow:var(--shL);transform:translateX(-120%);transition:transform .3s ease;border:1px solid var(--bd)}
-.ts.show{transform:translateX(0)}
-.ts-s{background:var(--bg2);border-color:var(--acB);color:var(--ac)}
-.ts-e{background:var(--bg2);border-color:var(--dnB);color:var(--dn)}
-.ts-w{background:var(--bg2);border-color:var(--wnB);color:var(--wn)}
-.ts button{background:none;border:none;color:inherit;cursor:pointer;font-size:1.1rem;padding:0;opacity:.6;transition:opacity var(--tr)}.ts button:hover{opacity:1}
-.pc{background:var(--bg3);border:1px solid var(--wnB);border-radius:var(--rs);padding:16px;margin-bottom:10px;animation:fi .3s ease}
-.pc .pch{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-.pc .pn{font-weight:600}.pc .pk{color:var(--t3);font-size:.82rem}
-.pc .pf{font-size:.82rem;color:var(--t2);margin-bottom:10px}
-.pc .pa{display:flex;gap:8px}
-.li{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--bd);font-size:.88rem;align-items:flex-start}
-.li:last-child{border-bottom:none}
-.lt{color:var(--t3);font-size:.78rem;white-space:nowrap;min-width:130px}
-.la{color:var(--ac);font-weight:600;white-space:nowrap;min-width:130px}
-.ld{color:var(--t2);flex:1}.lu{color:var(--inf);white-space:nowrap}
-.lp{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg0);position:relative;overflow:hidden}
-.lbg{position:absolute;inset:0;background:radial-gradient(ellipse 600px 400px at 20% 30%,rgba(0,229,160,.06) 0%,transparent 70%),radial-gradient(ellipse 500px 500px at 80% 70%,rgba(59,130,246,.05) 0%,transparent 70%),var(--bg0)}
-.lc{position:relative;width:100%;max-width:400px;padding:40px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);box-shadow:var(--shL);animation:si .4s ease}
-.llo{text-align:center;margin-bottom:32px}
-.llo .lbx{width:56px;height:56px;background:var(--ac);border-radius:var(--r);display:inline-flex;align-items:center;justify-content:center;color:#080b16;font-weight:900;font-size:1.5rem;margin-bottom:14px}
-.llo h1{font-size:1.2rem;font-weight:700}.llo p{color:var(--t3);font-size:.85rem;margin-top:4px}
-.le{background:var(--dnD);border:1px solid var(--dnB);color:var(--dn);padding:10px 14px;border-radius:var(--rs);font-size:.85rem;margin-bottom:16px;display:none}
-.le.show{display:block;animation:fi .2s ease}
-.spin{width:28px;height:28px;border:3px solid var(--bd);border-top-color:var(--ac);border-radius:50%;animation:sp .8s linear infinite;margin:40px auto}
-@keyframes fi{from{opacity:0}to{opacity:1}}
-@keyframes fsd{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
-@keyframes si{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
-@keyframes sp{to{transform:rotate(360deg)}}
-@media(max-width:900px){.sidebar{width:60px;min-width:60px}.si span:not(.ii){display:none}.si{justify-content:center;padding:10px}.si .ii{margin:0}.ndd{width:300px;left:-100px}}
-@media(max-width:600px){.main{padding:16px}.sg{grid-template-columns:1fr 1fr}.fr{grid-template-columns:1fr}.dzs{flex-direction:column}.header{padding:0 12px}.lc{margin:16px;padding:28px}}
-"""
-
-# ═══════════════════════════════════════════════════════════════
-# JS مشترک
-# ═══════════════════════════════════════════════════════════════
-
-JS_COMMON = """
-const A={async g(u){const r=await fetch(u);const d=await r.json();if(!r.ok)throw new Error(d.error||'خطایی رخ داد');return d},async p(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const d=await r.json();if(!r.ok)throw new Error(d.error||'خطایی رخ داد');return d},async u(u,b){const r=await fetch(u,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const d=await r.json();if(!r.ok)throw new Error(d.error||'خطایی رخ داد');return d},async d(u){const r=await fetch(u,{method:'DELETE'});const d=await r.json();if(!r.ok)throw new Error(d.error||'خطایی رخ داد');return d},async up(u,f){const r=await fetch(u,{method:'POST',body:f});const d=await r.json();if(!r.ok)throw new Error(d.error||'خطایی رخ داد');return d}};
-function toast(m,t='s'){const c=document.getElementById('tc');if(!c)return;const e=document.createElement('div');e.className='ts ts-'+t;e.innerHTML='<span>'+m+'</span><button onclick="this.parentElement.remove()">&times;</button>';c.appendChild(e);requestAnimationFrame(()=>e.classList.add('show'));setTimeout(()=>{e.classList.remove('show');setTimeout(()=>e.remove(),300)},4500)}
-function om(id){const m=document.getElementById(id);if(m){m.classList.add('active');document.body.style.overflow='hidden'}}
-function cm(id){const m=document.getElementById(id);if(m){m.classList.remove('active');document.body.style.overflow=''}}
-function al(a){const m={create_section:'ایجاد بخش',delete_section:'حذف بخش',add_employees:'افزودن کارکنان',upload_employees:'آپلود اکسل',delete_employee:'حذف کارمند',transfer:'انتقال مستقیم',transfer_initiated:'درخواست انتقال',transfer_accepted:'پذیرش انتقال',transfer_rejected:'رد انتقال',settlement:'تسویه',create_user:'ایجاد کاربر',update_user:'ویرایش کاربر',delete_user:'حذف کاربر',change_password:'تغییر رمز',change_owner:'تغییر مالک بخش'};return m[a]||a}
-function sl(s){const m={pending:'در انتظار تایید',accepted:'پذیرفته شده',rejected:'رد شده',completed:'تکمیل شده'};return m[s]||s}
-function sc(s){const m={pending:'pen',accepted:'acc',rejected:'rej',completed:'com'};return m[s]||s}
-document.addEventListener('click',e=>{if(e.target.classList.contains('mo')){e.target.classList.remove('active');document.body.style.overflow=''}});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){document.querySelectorAll('.mo.active').forEach(m=>m.classList.remove('active'));document.body.style.overflow=''}});
-"""
-
-# ═══════════════════════════════════════════════════════════════
-# HTML صفحه ورود
-# ═══════════════════════════════════════════════════════════════
-
-HTML_LOGIN = """<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>ورود - سیستم مدیریت منابع انسانی</title>
-<style>""" + CSS + """</style>
-</head>
-<body>
-<div class="lp"><div class="lbg"></div>
-<div class="lc">
-<div class="llo"><div class="lbx">HR</div><h1>سیستم مدیریت منابع انسانی</h1><p>برای ورود نام کاربری و کد ورود خود را وارد کنید</p></div>
-<div id="le" class="le"></div>
-<form id="lf" onsubmit="hl(event)">
-<div class="fg"><label class="fl">نام کاربری</label><input type="text" id="lu" placeholder="نام کاربری" autocomplete="username" required></div>
-<div class="fg"><label class="fl">کد ورود</label><input type="password" id="lpw" placeholder="کد ورود" autocomplete="current-password" required></div>
-<button type="submit" class="btn btn-p" style="width:100%;justify-content:center;margin-top:8px" id="lbtn">ورود به سیستم</button>
-</form>
-</div></div>
-<div id="tc"></div>
-<script>""" + JS_COMMON + """
-async function hl(e){e.preventDefault();const b=document.getElementById('lbtn'),er=document.getElementById('le');er.classList.remove('show');b.disabled=true;b.textContent='در حال ورود...';try{const r=await A.p('/api/login',{username:document.getElementById('lu').value.trim(),password:document.getElementById('lpw').value.trim()});window.location.href=r.redirect}catch(err){er.textContent=err.message;er.classList.add('show');b.disabled=false;b.textContent='ورود به سیستم'}}
-document.getElementById('lu').focus();
-</script></body></html>"""
-
-# ═══════════════════════════════════════════════════════════════
-# HTML صفحه مدیر
-# ═══════════════════════════════════════════════════════════════
-
-HTML_ADMIN = """<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>مدیریت - سیستم منابع انسانی</title>
-<style>""" + CSS + """</style>
-</head>
-<body>
-<header class="header">
-<div class="hlogo"><div class="lb">HR</div><span>پنل مدیریت</span></div>
-<div class="hacts">
-<span class="huser">مدیر سیستم</span>
-<div style="position:relative">
-<button class="nbtn" onclick="tn()" id="nt">&#x1F514;<span class="nbdg" id="nc" style="display:none">0</span></button>
-<div class="ndd" id="nd"><div class="nddh"><h4>اعلان‌ها</h4><button class="btn btn-g btn-sm" onclick="mra()">خواندن همه</button></div><div id="nl"><div class="ne">اعلانی وجود ندارد</div></div></div>
-</div>
-<a href="/logout" class="btn btn-g btn-sm">خروج</a>
-</div></header>
-<div class="layout">
-<aside class="sidebar">
-<nav class="snav">
-<button class="si active" data-p="ov" onclick="sp('ov')"><span class="ii">&#x1F4CA;</span><span>نمای کلی</span></button>
-<button class="si" data-p="sec" onclick="sp('sec')"><span class="ii">&#x1F3E2;</span><span>بخش‌ها</span></button>
-<button class="si" data-p="usr" onclick="sp('usr')"><span class="ii">&#x1F465;</span><span>کاربران</span></button>
-<button class="si" data-p="trn" onclick="sp('trn')"><span class="ii">&#x1F504;</span><span>انتقال‌ها</span></button>
-<button class="si" data-p="stl" onclick="sp('stl')"><span class="ii">&#x1F4B0;</span><span>تسویه‌ها</span></button>
-<button class="si" data-p="aud" onclick="sp('aud')"><span class="ii">&#x1F4DD;</span><span>گزارش تغییرات</span></button>
-</nav>
-<div class="sft"><button class="si" onclick="om('mpw')"><span class="ii">&#x1F511;</span><span>تغییر کد ورود</span></button></div>
-</aside>
-<main class="main" id="mc">
-<div id="p-ov" class="page active"></div>
-<div id="p-sec" class="page"></div>
-<div id="p-sd" class="page"></div>
-<div id="p-usr" class="page"></div>
-<div id="p-trn" class="page"></div>
-<div id="p-stl" class="page"></div>
-<div id="p-aud" class="page"></div>
-</main></div>
-
-<div class="mo" id="msec"><div class="md"><div class="mh"><h3>ایجاد بخش جدید</h3><button class="mx" onclick="cm('msec')">&times;</button></div><div class="mb"><div class="fg"><label class="fl">نام بخش</label><input type="text" id="sni" placeholder="مثلاً: تولید آلبالو"></div></div><div class="mf"><button class="btn btn-p" onclick="cs()">ایجاد</button><button class="btn btn-g" onclick="cm('msec')">انصراف</button></div></div></div>
-
-<div class="mo" id="memp"><div class="md"><div class="mh"><h3>افزودن کارمند</h3><button class="mx" onclick="cm('memp')">&times;</button></div><div class="mb"><div id="erows"></div><button class="btn btn-g btn-sm" onclick="aer()" style="margin-top:8px">+ افزودن ردیف</button></div><div class="mf"><button class="btn btn-p" onclick="se()">ذخیره</button><button class="btn btn-g" onclick="cm('memp')">انصراف</button></div></div></div>
-
-<div class="mo" id="mup"><div class="md"><div class="mh"><h3>آپلود فایل اکسل</h3><button class="mx" onclick="cm('mup')">&times;</button></div><div class="mb"><p class="fh" style="margin-bottom:12px">فایل باید شامل ستون‌های «نام»، «نام خانوادگی» و «کد پرسنلی» باشد.</p><input type="file" id="efile" accept=".xlsx,.xls"></div><div class="mf"><button class="btn btn-p" onclick="ue()">آپلود</button><button class="btn btn-g" onclick="cm('mup')">انصراف</button></div></div></div>
-
-<div class="mo" id="mtr"><div class="md"><div class="mh"><h3>انتقال کارمند</h3><button class="mx" onclick="cm('mtr')">&times;</button></div><div class="mb"><p id="tei" style="margin-bottom:14px;font-weight:600"></p><div class="fg"><label class="fl">بخش مقصد</label><select id="tdes"></select></div></div><div class="mf"><button class="btn btn-p" onclick="ct()">انجام انتقال</button><button class="btn btn-g" onclick="cm('mtr')">انصراف</button></div></div></div>
-
-<div class="mo" id="musr"><div class="md"><div class="mh"><h3 id="mut">ایجاد کاربر</h3><button class="mx" onclick="cm('musr')">&times;</button></div><div class="mb">
-<input type="hidden" id="euid">
-<div class="fg"><label class="fl">نام کاربری</label><input type="text" id="uun" placeholder="نام کاربری برای ورود"></div>
-<div class="fg"><label class="fl">کد ورود</label><input type="password" id="upw" placeholder="کد ورود"><p class="fh" id="pwh">حداقل ۳ کاراکتر</p></div>
-<div class="fg"><label class="fl">نام نمایشی</label><input type="text" id="udn" placeholder="مثلاً: مسئول بخش آلبالو"></div>
-</div><div class="mf"><button class="btn btn-p" onclick="su()">ذخیره</button><button class="btn btn-g" onclick="cm('musr')">انصراف</button></div></div></div>
-
-<div class="mo" id="mow"><div class="md"><div class="mh"><h3>تغییر مالک بخش</h3><button class="mx" onclick="cm('mow')">&times;</button></div><div class="mb"><div class="fg"><label class="fl">مالک جدید</label><select id="ownsel"></select></div></div><div class="mf"><button class="btn btn-p" onclick="co()">تغییر</button><button class="btn btn-g" onclick="cm('mow')">انصراف</button></div></div></div>
-
-<div class="mo" id="mpw"><div class="md"><div class="mh"><h3>تغییر کد ورود مدیر</h3><button class="mx" onclick="cm('mpw')">&times;</button></div><div class="mb"><div class="fg"><label class="fl">کد ورود فعلی</label><input type="password" id="opw"></div><div class="fg"><label class="fl">کد ورود جدید</label><input type="password" id="npw"></div></div><div class="mf"><button class="btn btn-p" onclick="cpw()">تغییر</button><button class="btn btn-g" onclick="cm('mpw')">انصراف</button></div></div></div>
-
-<div class="mo" id="mcf"><div class="md" style="max-width:400px"><div class="mh"><h3>تایید عملیات</h3><button class="mx" onclick="cm('mcf')">&times;</button></div><div class="mb"><p id="cfm"></p></div><div class="mf"><button class="btn btn-d" id="cfb">تایید</button><button class="btn btn-g" onclick="cm('mcf')">انصراف</button></div></div></div>
-
-<div id="tc"></div>
-<script>""" + JS_COMMON + """
-let S={sections:[],selSec:null,employees:[],users:[],transfers:[],settlements:[],auditLog:[],notifications:[],cp:'ov',trEid:null,sq:''};
-async function init(){try{await Promise.all([ls(),lu(),lt(),lst(),la(),ln()]);rp()}catch(e){toast(e.message,'e')}}
-async function ls(){S.sections=await A.g('/api/sections')}
-async function lu(){S.users=await A.g('/api/users')}
-async function lt(){S.transfers=await A.g('/api/transfers')}
-async function lst(){S.settlements=await A.g('/api/settlements')}
-async function la(){S.auditLog=await A.g('/api/audit-log')}
-async function ln(){S.notifications=await A.g('/api/notifications');const u=S.notifications.filter(n=>!n.read).length;const b=document.getElementById('nc');if(u>0){b.style.display='flex';b.textContent=u>9?'9+':u}else{b.style.display='none'}rnl()}
-function sp(p){S.cp=p;if(p!=='sd')S.selSec=null;document.querySelectorAll('.si[data-p]').forEach(e=>e.classList.toggle('active',e.dataset.p===p));document.querySelectorAll('.page').forEach(e=>e.classList.remove('active'));const t=document.getElementById('p-'+p);if(t)t.classList.add('active');rp()}
-function rp(){const m={ov:rov,sec:rsec,sd:rsd,usr:rusr,trn:rtrn,stl:rstl,aud:raud};(m[S.cp]||rov)()}
-
-function rov(){
-const te=S.sections.reduce((s,x)=>s+x.employee_count,0),pn=S.transfers.filter(t=>t.status==='pending').length;
-document.getElementById('p-ov').innerHTML=`<h2 class="pt">نمای کلی</h2>
-<div class="sg">
-<div class="sc"><span class="sl">تعداد بخش‌ها</span><span class="sv a1">${S.sections.length}</span></div>
-<div class="sc"><span class="sl">کل کارکنان</span><span class="sv i1">${te}</span></div>
-<div class="sc"><span class="sl">انتقال‌های در انتظار</span><span class="sv w1">${pn}</span></div>
-<div class="sc"><span class="sl">تسویه‌ها</span><span class="sv d1">${S.settlements.length}</span></div>
-<div class="sc"><span class="sl">کاربران</span><span class="sv">${S.users.length}</span></div>
-</div>
- ${pn>0?`<div class="card" style="border-color:var(--wnB);margin-bottom:20px"><h3 style="color:var(--wn);margin-bottom:12px;font-size:.95rem">انتقال‌های در انتظار تایید</h3>${S.transfers.filter(t=>t.status==='pending').map(t=>`<div class="pc"><div class="pch"><span class="pn">${t.employee.name} ${t.employee.family}</span><span class="pk">کد: ${t.employee.code}</span></div><div class="pf">از: ${sn(t.from_section)} ← به: ${sn(t.to_section)} | توسط: ${t.initiated_by}</div><div class="pa"><button class="btn btn-p btn-sm" onclick="at('${t.id}')">پذیرش</button><button class="btn btn-d btn-sm" onclick="rt('${t.id}')">رد</button></div></div>`).join('')}</div>`:''}
-<div class="card"><h3 style="margin-bottom:14px;font-size:.95rem">آخرین فعالیت‌ها</h3>${S.auditLog.length===0?'<p style="color:var(--t3)">فعالیتی ثبت نشده</p>':S.auditLog.slice(0,8).map(l=>`<div class="li"><span class="lt">${l.timestamp}</span><span class="la">${al(l.action)}</span><span class="lu">${l.user}</span><span class="ld">${l.details}</span></div>`).join('')}</div>`}
-
-function rsec(){
-document.getElementById('p-sec').innerHTML=`<div class="tb"><h2 class="pt" style="margin-bottom:0">بخش‌ها</h2><div class="tb-sp"></div><button class="btn btn-p" onclick="om('msec');document.getElementById('sni').focus()">+ ایجاد بخش</button></div>
- ${S.sections.length===0?'<div class="es"><div class="ei">&#x1F3E2;</div><p>بخشی ایجاد نشده است</p></div>':`<div class="sec-g">${S.sections.map(s=>`<div class="secc" onclick="osd('${s.id}')"><button class="xsec" onclick="event.stopPropagation();cds('${s.id}','${s.name}')">&times;</button><div class="sn">${s.name}</div><div class="scn"><span>${s.employee_count}</span> نفر</div><div class="sow">مالک: ${s.owner_name||'مدیر سیستم'}</div></div>`).join('')}</div>`}`}
-
-async function cs(){const n=document.getElementById('sni').value.trim();if(!n)return toast('نام بخش را وارد کنید','e');try{await A.p('/api/sections',{name:n});toast('بخش ایجاد شد');cm('msec');document.getElementById('sni').value='';await ls();rp()}catch(e){toast(e.message,'e')}}
-function cds(id,nm){document.getElementById('cfm').textContent='آیا از حذف بخش «'+nm+'» اطمینان دارید؟';document.getElementById('cfb').onclick=async()=>{try{await A.d('/api/sections/'+id);toast('بخش حذف شد');cm('mcf');await ls();await lu();await lt();rp()}catch(e){toast(e.message,'e')}};om('mcf')}
-
-async function osd(sid){S.selSec=sid;S.employees=await A.g('/api/sections/'+sid+'/employees');S.sq='';document.querySelectorAll('.si[data-p]').forEach(e=>e.classList.remove('active'));document.querySelectorAll('.page').forEach(e=>e.classList.remove('active'));document.getElementById('p-sd').classList.add('active');S.cp='sd';rsd()}
-
-function rsd(){
-const sec=S.sections.find(s=>s.id===S.selSec);if(!sec)return sp('sec');
-const q=S.sq.toLowerCase(),f=q?S.employees.filter(e=>e.name.includes(q)||e.family.includes(q)||e.code.includes(q)):S.employees;
-const other=S.sections.filter(s=>s.id!==S.selSec);
-document.getElementById('p-sd').innerHTML=`<div class="tb"><button class="btn btn-g btn-sm" onclick="sp('sec')">&#x2190; بازگشت</button><div class="tb-sp"></div>
-<button class="btn btn-g btn-sm" onclick="owm('${S.selSec}')">&#x1F464; تغییر مالک</button>
-<button class="btn btn-g btn-sm" onclick="window.open('/api/sections/${S.selSec}/export','_blank')">&#x1F4E5; خروجی اکسل</button>
-<button class="btn btn-g btn-sm" onclick="om('mup')">&#x1F4C1; آپلود اکسل</button>
-<button class="btn btn-p btn-sm" onclick="oae()">+ افزودن کارمند</button></div>
-<h2 class="pt">${sec.name} <span style="font-size:.85rem;color:var(--t3);font-weight:400">(${f.length} نفر)</span></h2>
-<div class="tb"><div class="sb"><span class="sic">&#x1F50D;</span><input type="text" placeholder="جستجو..." value="${S.sq}" oninput="S.sq=this.value;rsd()"></div></div>
- ${f.length===0?'<div class="es"><div class="ei">&#x1F464;</div><p>کارمندی وجود ندارد</p></div>':`<div class="tw" style="margin-bottom:16px"><table><thead><tr><th>ردیف</th><th>نام</th><th>نام خانوادگی</th><th>کد پرسنلی</th><th>عملیات</th></tr></thead><tbody>${f.map((e,i)=>`<tr draggable="true" data-eid="${e.id}" ondragstart="ds(ev,'${e.id}','${e.name} ${e.family}','${e.code}')" ondragend="de(ev)"><td>${i+1}</td><td>${e.name}</td><td>${e.family}</td><td style="font-weight:600;direction:ltr;text-align:right">${e.code}</td><td><button class="btn btn-d btn-sm btn-ic" onclick="cde('${e.id}','${e.name} ${e.family}')" title="حذف">&times;</button></td></tr>`).join('')}</tbody></table></div>`}
- ${other.length>0?`<div class="dzs"><div class="dz" ondragover="ev.preventDefault();this.classList.add('da')" ondragleave="this.classList.remove('da')" ondrop="dt(ev)"><span class="di">&#x1F504;</span><span class="dl">انتقال به بخش دیگر</span><span class="dh">کارمند را اینجا رها کنید</span></div><div class="dz sz" ondragover="ev.preventDefault();this.classList.add('da')" ondragleave="this.classList.remove('da')" ondrop="dsel(ev)"><span class="di">&#x1F4B0;</span><span class="dl">انتقال به تسویه</span><span class="dh">کارمند را اینجا رها کنید</span></div></div>`:''}`}
-
-function oae(){document.getElementById('erows').innerHTML='';aer();aer();aer();om('memp')}
-function aer(){const c=document.getElementById('erows'),d=document.createElement('div');d.className='fr';d.style.marginBottom='8px';d.innerHTML=`<input type="text" placeholder="نام" class="en"><input type="text" placeholder="نام خانوادگی" class="ef"><input type="text" placeholder="کد پرسنلی" class="ec" style="direction:ltr;text-align:right"><button class="btn btn-g btn-sm btn-ic" onclick="this.parentElement.remove()">&times;</button>`;c.appendChild(d)}
-async function se(){const rows=document.querySelectorAll('#erows .fr'),emps=[];rows.forEach(r=>{const n=r.querySelector('.en').value.trim(),f=r.querySelector('.ef').value.trim(),c=r.querySelector('.ec').value.trim();if(n||f||c)emps.push({name:n,family:f,code:c})});if(!emps.length)return toast('حداقل یک کارمند وارد کنید','e');try{const res=await A.p('/api/sections/'+S.selSec+'/employees',{employees:emps});cm('memp');if(res.errors.length)toast(res.added.length+' اضافه شد، '+res.errors.length+' خطا','w');else toast(res.added.length+' نفر اضافه شد');await ls();S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}}
-async function ue(){const f=document.getElementById('efile').files[0];if(!f)return toast('فایلی انتخاب نشده','e');const fd=new FormData();fd.append('file',f);try{const res=await A.up('/api/sections/'+S.selSec+'/employees/upload',fd);cm('mup');document.getElementById('efile').value='';if(res.errors.length)toast(res.added.length+' اضافه شد، '+res.errors.length+' خطا','w');else toast(res.added.length+' نفر اضافه شد');await ls();S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}}
-function cde(id,nm){document.getElementById('cfm').textContent='آیا از حذف «'+nm+'» اطمینان دارید؟';document.getElementById('cfb').onclick=async()=>{try{await A.d('/api/sections/'+S.selSec+'/employees/'+id);toast('حذف شد');cm('mcf');await ls();S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}};om('mcf')}
-
-let dEid=null,dEnm='',dEcd='';
-function ds(e,id,nm,cd){dEid=id;dEnm=nm;dEcd=cd;e.dataTransfer.effectAllowed='move';e.target.classList.add('dragging')}
-function de(e){e.target.classList.remove('dragging');document.querySelectorAll('.dz').forEach(z=>z.classList.remove('da'))}
-function dt(e){e.preventDefault();e.currentTarget.classList.remove('da');if(!dEid)return;const o=S.sections.filter(s=>s.id!==S.selSec);if(!o.length)return toast('بخش مقصدی وجود ندارد','e');S.trEid=dEid;document.getElementById('tei').textContent=dEnm+' (کد: '+dEcd+')';document.getElementById('tdes').innerHTML=o.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');om('mtr')}
-function dsel(e){e.preventDefault();e.currentTarget.classList.remove('da');if(!dEid)return;document.getElementById('cfm').textContent='آیا از انتقال «'+dEnm+'» به تسویه اطمینان دارید؟';document.getElementById('cfb').onclick=async()=>{try{await A.p('/api/settlements',{employee_id:dEid,from_section:S.selSec});toast('به تسویه منتقل شد');cm('mcf');await ls();await lst();S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}};om('mcf')}
-async function ct(){const d=document.getElementById('tdes').value;if(!d)return toast('بخش مقصد را انتخاب کنید','e');try{await A.p('/api/transfers',{employee_id:S.trEid,from_section:S.selSec,to_section:d});toast('انتقال انجام شد');cm('mtr');await ls();await lt();await ln();S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}}
-
-function owm(sid){const sel=document.getElementById('ownsel');sel.innerHTML='<option value="">مدیر سیستم</option>'+S.users.map(u=>`<option value="${u.id}">${u.display_name} (${u.username})</option>`).join('');const sec=S.sections.find(s=>s.id===sid);sel.value=sec&&sec.owner?sec.owner:'';om('mow');document.getElementById('ownsel').dataset.sid=sid}
-async function co(){const sid=document.getElementById('ownsel').dataset.sid;const ow=document.getElementById('ownsel').value||null;try{await A.u('/api/sections/'+sid+'/owner',{owner:ow});toast('مالک تغییر کرد');cm('mow');await ls();rp()}catch(e){toast(e.message,'e')}}
-
-function rusr(){
-document.getElementById('p-usr').innerHTML=`<div class="tb"><h2 class="pt" style="margin-bottom:0">کاربران</h2><div class="tb-sp"></div><button class="btn btn-p" onclick="oum()">+ ایجاد کاربر</button></div>
- ${S.users.length===0?'<div class="es"><div class="ei">&#x1F465;</div><p>کاربری ایجاد نشده</p></div>':`<div class="tw"><table><thead><tr><th>نام کاربری</th><th>نام نمایشی</th><th>بخش‌های تحت مدیریت</th><th>عملیات</th></tr></thead><tbody>${S.users.map(u=>{const secs=S.sections.filter(s=>s.owner===u.id).map(s=>s.name);return`<tr><td style="direction:ltr;text-align:right">${u.username}</td><td>${u.display_name}</td><td>${secs.length?secs.join('، '):'<span style="color:var(--t3)">--</span>'}</td><td><button class="btn btn-g btn-sm" onclick="eu('${u.id}')">ویرایش</button><button class="btn btn-d btn-sm" onclick="cdu('${u.id}','${u.display_name}')">حذف</button></td></tr>`}).join('')}</tbody></table></div>`}`}
-
-function oum(){document.getElementById('mut').textContent='ایجاد کاربر';document.getElementById('euid').value='';document.getElementById('uun').value='';document.getElementById('uun').disabled=false;document.getElementById('upw').value='';document.getElementById('udn').value='';document.getElementById('pwh').textContent='حداقل ۳ کاراکتر';om('musr')}
-function eu(id){document.getElementById('mut').textContent='ویرایش کاربر';document.getElementById('euid').value=id;const u=S.users.find(x=>x.id===id);if(u){document.getElementById('uun').value=u.username;document.getElementById('uun').disabled=true;document.getElementById('upw').value='';document.getElementById('udn').value=u.display_name;document.getElementById('pwh').textContent='خالی بگذارید برای بدون تغییر'}om('musr')}
-async function su(){const eid=document.getElementById('euid').value,un=document.getElementById('uun').value.trim(),pw=document.getElementById('upw').value.trim(),dn=document.getElementById('udn').value.trim();if(!un)return toast('نام کاربری الزامی است','e');if(!eid&&!pw)return toast('کد ورود الزامی است','e');try{if(eid){const b={display_name:dn};if(pw)b.password=pw;await A.u('/api/users/'+eid,b);toast('ویرایش شد')}else{await A.p('/api/users',{username:un,password:pw,display_name:dn});toast('کاربر ایجاد شد')}cm('musr');await lu();rp()}catch(e){toast(e.message,'e')}}
-function cdu(id,nm){document.getElementById('cfm').textContent='آیا از حذف کاربر «'+nm+'» اطمینان دارید؟ بخش‌های تحت مدیریت او به مدیر سیستم منتقل می‌شود.';document.getElementById('cfb').onclick=async()=>{try{await A.d('/api/users/'+id);toast('حذف شد');cm('mcf');await lu();await ls();rp()}catch(e){toast(e.message,'e')}};om('mcf')}
-
-function rtrn(){const el=document.getElementById('p-trn'),fv=el.querySelector('.tf')?.value||'all',fl=fv==='all'?S.transfers:S.transfers.filter(t=>t.status===fv);
-el.innerHTML=`<div class="tb"><h2 class="pt" style="margin-bottom:0">انتقال‌ها</h2><div class="tb-sp"></div><select class="tf" onchange="rtrn()" style="width:auto"><option value="all" ${fv==='all'?'selected':''}>همه</option><option value="pending" ${fv==='pending'?'selected':''}>در انتظار</option><option value="accepted" ${fv==='accepted'?'selected':''}>پذیرفته شده</option><option value="completed" ${fv==='completed'?'selected':''}>تکمیل شده</option><option value="rejected" ${fv==='rejected'?'selected':''}>رد شده</option></select></div>
- ${fl.length===0?'<div class="es"><div class="ei">&#x1F504;</div><p>انتقالی یافت نشد</p></div>':`<div class="tw"><table><thead><tr><th>کارمند</th><th>کد پرسنلی</th><th>از بخش</th><th>به بخش</th><th>وضعیت</th><th>توسط</th><th>تاریخ</th><th>عملیات</th></tr></thead><tbody>${fl.map(t=>`<tr><td>${t.employee.name} ${t.employee.family}</td><td style="direction:ltr;text-align:right">${t.employee.code}</td><td>${sn(t.from_section)}</td><td>${sn(t.to_section)}</td><td><span class="badge b-${sc(t.status)}">${sl(t.status)}</span></td><td>${t.initiated_by}</td><td style="font-size:.82rem;color:var(--t3);white-space:nowrap">${t.timestamp}</td><td>${t.status==='pending'?`<button class="btn btn-p btn-sm" onclick="at('${t.id}')">پذیرش</button><button class="btn btn-d btn-sm" onclick="rt('${t.id}')">رد</button>`:'-'}</td></tr>`).join('')}</tbody></table></div>`}`}
-
-async function at(tid){try{await A.p('/api/transfers/'+tid+'/accept',{});toast('پذیرفته شد');await ls();await lt();await ln();rp()}catch(e){toast(e.message,'e')}}
-async function rt(tid){try{await A.p('/api/transfers/'+tid+'/reject',{});toast('رد شد');await ls();await lt();await ln();rp()}catch(e){toast(e.message,'e')}}
-
-function rstl(){document.getElementById('p-stl').innerHTML=`<div class="tb"><h2 class="pt" style="margin-bottom:0">تسویه‌ها</h2><div class="tb-sp"></div><button class="btn btn-g btn-sm" onclick="window.open('/api/settlements/export','_blank')">&#x1F4E5; خروجی اکسل</button></div>
- ${S.settlements.length===0?'<div class="es"><div class="ei">&#x1F4B0;</div><p>تسویه‌ای ثبت نشده</p></div>':`<div class="tw"><table><thead><tr><th>کارمند</th><th>کد پرسنلی</th><th>بخش مبدأ</th><th>توسط</th><th>تاریخ</th></tr></thead><tbody>${S.settlements.map(s=>`<tr><td>${s.employee.name} ${s.employee.family}</td><td style="direction:ltr;text-align:right">${s.employee.code}</td><td>${s.from_section_name}</td><td>${s.initiated_by}</td><td style="font-size:.82rem;color:var(--t3);white-space:nowrap">${s.timestamp}</td></tr>`).join('')}</tbody></table></div>`}`}
-
-function raud(){document.getElementById('p-aud').innerHTML=`<div class="tb"><h2 class="pt" style="margin-bottom:0">گزارش تغییرات</h2><div class="tb-sp"></div><button class="btn btn-g btn-sm" onclick="window.open('/api/audit-log/export','_blank')">&#x1F4E5; خروجی اکسل</button></div>
- ${S.auditLog.length===0?'<div class="es"><div class="ei">&#x1F4DD;</div><p>فعالیتی ثبت نشده</p></div>':`<div class="card">${S.auditLog.map(l=>`<div class="li"><span class="lt">${l.timestamp}</span><span class="la">${al(l.action)}</span><span class="lu">${l.user}</span><span class="ld">${l.details}</span></div>`).join('')}</div>`}`}
-
-function tn(){document.getElementById('nd').classList.toggle('show')}
-function rnl(){const el=document.getElementById('nl');if(!S.notifications.length){el.innerHTML='<div class="ne">اعلانی وجود ندارد</div>';return}el.innerHTML=S.notifications.slice(0,20).map(n=>`<div class="ni ${n.read?'':'ur'}" onclick="mr('${n.id}')">${n.message}<span class="nt">${n.timestamp}</span></div>`).join('')}
-async function mr(nid){try{await A.p('/api/notifications/'+nid+'/read',{});await ln()}catch(e){}}
-async function mra(){try{await A.p('/api/notifications/read-all',{});await ln();toast('خوانده شد')}catch(e){}}
-async function cpw(){const o=document.getElementById('opw').value,n=document.getElementById('npw').value.trim();if(!o||!n)return toast('هر دو فیلد الزامی است','e');try{await A.p('/api/admin/change-password',{old_password:o,new_password:n});toast('تغییر کرد');cm('mpw');document.getElementById('opw').value='';document.getElementById('npw').value=''}catch(e){toast(e.message,'e')}}
-function sn(sid){const s=S.sections.find(x=>x.id===sid);return s?s.name:(sid||'نامشخص')}
-document.addEventListener('click',e=>{const dd=document.getElementById('nd'),btn=document.getElementById('nt');if(dd&&!dd.contains(e.target)&&!btn.contains(e.target))dd.classList.remove('show')});
-document.addEventListener('DOMContentLoaded',init);
-</script></body></html>"""
-
-# ═══════════════════════════════════════════════════════════════
-# HTML صفحه کاربر (مسئول)
-# ═══════════════════════════════════════════════════════════════
-
-HTML_USER = """<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>پنل کاربر - سیستم منابع انسانی</title>
-<style>""" + CSS + """</style>
-</head>
-<body>
-<header class="header">
-<div class="hlogo"><div class="lb">HR</div><span id="hsn">پنل کاربر</span></div>
-<div class="hacts">
-<span class="huser" id="hun"></span>
-<div style="position:relative">
-<button class="nbtn" onclick="tn()" id="nt">&#x1F514;<span class="nbdg" id="nc" style="display:none">0</span></button>
-<div class="ndd" id="nd"><div class="nddh"><h4>اعلان‌ها</h4><button class="btn btn-g btn-sm" onclick="mra()">خواندن همه</button></div><div id="nl"><div class="ne">اعلانی وجود ندارد</div></div></div>
-</div>
-<a href="/logout" class="btn btn-g btn-sm">خروج</a>
-</div></header>
-<main class="main"><div id="ar"><div class="spin"></div></div></main>
-
-<div class="mo" id="msec"><div class="md"><div class="mh"><h3>ایجاد بخش جدید</h3><button class="mx" onclick="cm('msec')">&times;</button></div><div class="mb"><div class="fg"><label class="fl">نام بخش</label><input type="text" id="sni" placeholder="مثلاً: تولید آلبالو"></div></div><div class="mf"><button class="btn btn-p" onclick="cs()">ایجاد</button><button class="btn btn-g" onclick="cm('msec')">انصراف</button></div></div></div>
-
-<div class="mo" id="memp"><div class="md"><div class="mh"><h3>افزودن کارمند</h3><button class="mx" onclick="cm('memp')">&times;</button></div><div class="mb"><div id="erows"></div><button class="btn btn-g btn-sm" onclick="aer()" style="margin-top:8px">+ افزودن ردیف</button></div><div class="mf"><button class="btn btn-p" onclick="se()">ذخیره</button><button class="btn btn-g" onclick="cm('memp')">انصراف</button></div></div></div>
-
-<div class="mo" id="mup"><div class="md"><div class="mh"><h3>آپلود فایل اکسل</h3><button class="mx" onclick="cm('mup')">&times;</button></div><div class="mb"><p class="fh" style="margin-bottom:12px">فایل باید شامل ستون‌های «نام»، «نام خانوادگی» و «کد پرسنلی» باشد.</p><input type="file" id="efile" accept=".xlsx,.xls"></div><div class="mf"><button class="btn btn-p" onclick="ue()">آپلود</button><button class="btn btn-g" onclick="cm('mup')">انصراف</button></div></div></div>
-
-<div class="mo" id="mtr"><div class="md"><div class="mh"><h3>انتقال کارمند</h3><button class="mx" onclick="cm('mtr')">&times;</button></div><div class="mb"><p id="tei" style="margin-bottom:14px;font-weight:600"></p><div class="fg"><label class="fl">بخش مقصد</label><select id="tdes"></select></div><p class="fh" style="color:var(--wn);margin-top:8px">توجه: پس از ارسال، کارمند منتظر تایید مسئول بخش مقصد خواهد بود.</p></div><div class="mf"><button class="btn btn-p" onclick="ct()">ارسال درخواست</button><button class="btn btn-g" onclick="cm('mtr')">انصراف</button></div></div></div>
-
-<div class="mo" id="mcf"><div class="md" style="max-width:400px"><div class="mh"><h3>تایید عملیات</h3><button class="mx" onclick="cm('mcf')">&times;</button></div><div class="mb"><p id="cfm"></p></div><div class="mf"><button class="btn btn-d" id="cfb">تایید</button><button class="btn btn-g" onclick="cm('mcf')">انصراف</button></div></div></div>
-
-<div id="tc"></div>
-<script>""" + JS_COMMON + """
-let S={me:null,uid:null,sections:[],mySections:[],selSec:null,employees:[],transfers:[],notifications:[],sq:'',trEid:null};
-
-async function init(){try{S.me=await A.g('/api/me');S.uid=S.me.user_id;document.getElementById('hsn').textContent='پنل '+S.me.display_name;document.getElementById('hun').textContent=S.me.display_name;await Promise.all([ls(),lt(),ln()]);S.mySections=S.sections.filter(s=>s.owner===S.uid);if(!S.mySections.length){rns();return}rv()}catch(e){document.getElementById('ar').innerHTML='<p style="color:var(--dn);text-align:center;padding:40px">'+e.message+'</p>'}}
-async function ls(){S.sections=await A.g('/api/sections')}
-async function lt(){S.transfers=await A.g('/api/transfers')}
-async function ln(){S.notifications=await A.g('/api/notifications');const u=S.notifications.filter(n=>!n.read).length;const b=document.getElementById('nc');if(u>0){b.style.display='flex';b.textContent=u>9?'9+':u}else{b.style.display='none'}rnl()}
-
-function rns(){document.getElementById('ar').innerHTML=`<div style="text-align:center;padding:80px 24px"><div style="font-size:3.5rem;margin-bottom:16px;opacity:.3">&#x1F3E2;</div><h2 style="margin-bottom:12px">بخشی ایجاد نشده است</h2><p style="color:var(--t3);margin-bottom:24px">شما هنوز بخشی ایجاد نکرده‌اید. اولین بخش خود را بسازید.</p><button class="btn btn-p" onclick="om('msec');document.getElementById('sni').focus()" style="margin:0 auto">+ ایجاد اولین بخش</button></div>`}
-
-function rv(){
-const pi=S.transfers.filter(t=>t.status==='pending'&&S.mySections.some(s=>s.id===t.to_section));
-const po=S.transfers.filter(t=>t.status==='pending'&&S.mySections.some(s=>s.id===t.from_section));
-const te=S.mySections.reduce((s,x)=>s+x.employee_count,0);
-document.getElementById('ar').innerHTML=`<div style="max-width:1200px;margin:0 auto">
-<div class="sg">
-<div class="sc"><span class="sl">بخش‌های من</span><span class="sv a1">${S.mySections.length}</span></div>
-<div class="sc"><span class="sl">کل کارکنان</span><span class="sv i1">${te}</span></div>
-<div class="sc"><span class="sl">درخواست دریافتی</span><span class="sv w1">${pi.length}</span></div>
-<div class="sc"><span class="sl">درخواست ارسالی</span><span class="sv">${po.length}</span></div>
-</div>
- ${pi.length>0?`<div class="card" style="border-color:var(--wnB);margin-bottom:20px"><h3 style="color:var(--wn);margin-bottom:12px;font-size:.95rem">درخواست‌های انتقال دریافتی (نیاز به تایید شما)</h3>${pi.map(t=>`<div class="pc"><div class="pch"><span class="pn">${t.employee.name} ${t.employee.family}</span><span class="pk">کد: ${t.employee.code}</span></div><div class="pf">از: ${sn(t.from_section)} | توسط: ${t.initiated_by} | ${t.timestamp}</div><div class="pa"><button class="btn btn-p btn-sm" onclick="at('${t.id}')">پذیرش</button><button class="btn btn-d btn-sm" onclick="rt('${t.id}')">رد</button></div></div>`).join('')}</div>`:''}
-<div class="tb"><h2 class="pt" style="margin-bottom:0">بخش‌های من</h2><div class="tb-sp"></div><button class="btn btn-p" onclick="om('msec');document.getElementById('sni').focus()">+ ایجاد بخش</button></div>
-<div class="sec-g">${S.mySections.map(s=>`<div class="secc" onclick="osd('${s.id}')"><button class="xsec" onclick="event.stopPropagation();cds('${s.id}','${s.name}')">&times;</button><div class="sn">${s.name}</div><div class="scn"><span>${s.employee_count}</span> نفر</div></div>`).join('')}</div>
- ${po.length>0?`<h2 class="pt" style="margin-top:28px">درخواست‌های ارسالی در انتظار</h2><div class="card">${po.map(t=>`<div class="pc" style="border-color:var(--infB)"><div class="pch"><span class="pn">${t.employee.name} ${t.employee.family}</span><span class="badge b-pen">در انتظار</span></div><div class="pf">به: ${sn(t.to_section)} | ${t.timestamp}</div></div>`).join('')}</div>`:''}
-</div>`}
-
-async function cs(){const n=document.getElementById('sni').value.trim();if(!n)return toast('نام بخش را وارد کنید','e');try{await A.p('/api/sections',{name:n});toast('بخش ایجاد شد');cm('msec');document.getElementById('sni').value='';await ls();S.mySections=S.sections.filter(s=>s.owner===S.uid);rv()}catch(e){toast(e.message,'e')}}
-function cds(id,nm){document.getElementById('cfm').textContent='آیا از حذف بخش «'+nm+'» اطمینان دارید؟ کارکنان منتقل‌نشده به تسویه منتقل می‌شوند.';document.getElementById('cfb').onclick=async()=>{try{await A.d('/api/sections/'+id);toast('بخش حذف شد');cm('mcf');await ls();await lt();S.mySections=S.sections.filter(s=>s.owner===S.uid);rv()}catch(e){toast(e.message,'e')}};om('mcf')}
-
-async function osd(sid){S.selSec=sid;S.employees=await A.g('/api/sections/'+sid+'/employees');S.sq='';rsd()}
-
-function rsd(){
-const sec=S.mySections.find(s=>s.id===S.selSec);if(!sec)return rv();
-const q=S.sq.toLowerCase(),f=q?S.employees.filter(e=>e.name.includes(q)||e.family.includes(q)||e.code.includes(q)):S.employees;
-const other=S.sections.filter(s=>s.id!==S.selSec);
-document.getElementById('ar').innerHTML=`<div style="max-width:1200px;margin:0 auto">
-<div class="tb"><button class="btn btn-g btn-sm" onclick="rv()">&#x2190; بازگشت به بخش‌ها</button><div class="tb-sp"></div>
-<button class="btn btn-g btn-sm" onclick="window.open('/api/sections/${S.selSec}/export','_blank')">&#x1F4E5; خروجی اکسل</button>
-<button class="btn btn-g btn-sm" onclick="om('mup')">&#x1F4C1; آپلود اکسل</button>
-<button class="btn btn-p btn-sm" onclick="oae()">+ افزودن کارمند</button></div>
-<h2 class="pt">${sec.name} <span style="font-size:.85rem;color:var(--t3);font-weight:400">(${f.length} نفر)</span></h2>
-<div class="tb"><div class="sb"><span class="sic">&#x1F50D;</span><input type="text" placeholder="جستجو..." value="${S.sq}" oninput="S.sq=this.value;rsd()"></div></div>
- ${f.length===0?'<div class="es"><div class="ei">&#x1F464;</div><p>کارمندی وجود ندارد</p></div>':`<div class="tw" style="margin-bottom:16px"><table><thead><tr><th>ردیف</th><th>نام</th><th>نام خانوادگی</th><th>کد پرسنلی</th><th>عملیات</th></tr></thead><tbody>${f.map((e,i)=>`<tr draggable="true" ondragstart="ds(ev,'${e.id}','${e.name} ${e.family}','${e.code}')" ondragend="de(ev)"><td>${i+1}</td><td>${e.name}</td><td>${e.family}</td><td style="font-weight:600;direction:ltr;text-align:right">${e.code}</td><td><button class="btn btn-g btn-sm" onclick="stm('${e.id}','${e.name} ${e.family}','${e.code}')" title="انتقال">&#x1F504;</button><button class="btn btn-g btn-sm" onclick="stl('${e.id}','${e.name} ${e.family}')" title="تسویه" style="color:var(--wn)">&#x1F4B0;</button><button class="btn btn-d btn-sm btn-ic" onclick="cde('${e.id}','${e.name} ${e.family}')" title="حذف">&times;</button></td></tr>`).join('')}</tbody></table></div>`}
- ${other.length>0?`<div class="dzs"><div class="dz" ondragover="ev.preventDefault();this.classList.add('da')" ondragleave="this.classList.remove('da')" ondrop="dt(ev)"><span class="di">&#x1F504;</span><span class="dl">انتقال به بخش دیگر</span><span class="dh">کارمند را بکشید و رها کنید</span></div><div class="dz sz" ondragover="ev.preventDefault();this.classList.add('da')" ondragleave="this.classList.remove('da')" ondrop="dsel(ev)"><span class="di">&#x1F4B0;</span><span class="dl">انتقال به تسویه</span><span class="dh">کارمند را بکشید و رها کنید</span></div></div>`:''}
-</div>`}
-
-function oae(){document.getElementById('erows').innerHTML='';aer();aer();aer();om('memp')}
-function aer(){const c=document.getElementById('erows'),d=document.createElement('div');d.className='fr';d.style.marginBottom='8px';d.innerHTML=`<input type="text" placeholder="نام" class="en"><input type="text" placeholder="نام خانوادگی" class="ef"><input type="text" placeholder="کد پرسنلی" class="ec" style="direction:ltr;text-align:right"><button class="btn btn-g btn-sm btn-ic" onclick="this.parentElement.remove()">&times;</button>`;c.appendChild(d)}
-async function se(){const rows=document.querySelectorAll('#erows .fr'),emps=[];rows.forEach(r=>{const n=r.querySelector('.en').value.trim(),f=r.querySelector('.ef').value.trim(),c=r.querySelector('.ec').value.trim();if(n||f||c)emps.push({name:n,family:f,code:c})});if(!emps.length)return toast('حداقل یک کارمند وارد کنید','e');try{const res=await A.p('/api/sections/'+S.selSec+'/employees',{employees:emps});cm('memp');if(res.errors.length)toast(res.added.length+' اضافه شد، '+res.errors.length+' خطا','w');else toast(res.added.length+' نفر اضافه شد');await ls();S.mySections=S.sections.filter(s=>s.owner===S.uid);S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}}
-async function ue(){const f=document.getElementById('efile').files[0];if(!f)return toast('فایلی انتخاب نشده','e');const fd=new FormData();fd.append('file',f);try{const res=await A.up('/api/sections/'+S.selSec+'/employees/upload',fd);cm('mup');document.getElementById('efile').value='';if(res.errors.length)toast(res.added.length+' اضافه شد، '+res.errors.length+' خطا','w');else toast(res.added.length+' نفر اضافه شد');await ls();S.mySections=S.sections.filter(s=>s.owner===S.uid);S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}}
-function cde(id,nm){document.getElementById('cfm').textContent='آیا از حذف «'+nm+'» اطمینان دارید؟';document.getElementById('cfb').onclick=async()=>{try{await A.d('/api/sections/'+S.selSec+'/employees/'+id);toast('حذف شد');cm('mcf');await ls();S.mySections=S.sections.filter(s=>s.owner===S.uid);S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}};om('mcf')}
-
-let dEid=null,dEnm='',dEcd='';
-function ds(e,id,nm,cd){dEid=id;dEnm=nm;dEcd=cd;e.dataTransfer.effectAllowed='move';e.target.classList.add('dragging')}
-function de(e){e.target.classList.remove('dragging');document.querySelectorAll('.dz').forEach(z=>z.classList.remove('da'))}
-function dt(e){e.preventDefault();e.currentTarget.classList.remove('da');if(!dEid)return;stm(dEid,dEnm,dEcd)}
-function dsel(e){e.preventDefault();e.currentTarget.classList.remove('da');if(!dEid)return;stl(dEid,dEnm)}
-function stm(id,nm,cd){const other=S.sections.filter(s=>s.id!==S.selSec);if(!other.length)return toast('بخش مقصدی وجود ندارد','e');S.trEid=id;document.getElementById('tei').textContent=nm+' (کد: '+cd+')';document.getElementById('tdes').innerHTML=other.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');om('mtr')}
-function stl(id,nm){document.getElementById('cfm').textContent='آیا از انتقال «'+nm+'» به تسویه اطمینان دارید؟';document.getElementById('cfb').onclick=async()=>{try{await A.p('/api/settlements',{employee_id:id,from_section:S.selSec});toast('به تسویه منتقل شد');cm('mcf');await ls();S.mySections=S.sections.filter(s=>s.owner===S.uid);S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}};om('mcf')}
-async function ct(){const d=document.getElementById('tdes').value;if(!d)return toast('بخش مقصد را انتخاب کنید','e');try{await A.p('/api/transfers',{employee_id:S.trEid,from_section:S.selSec,to_section:d});toast('درخواست انتقال ارسال شد');cm('mtr');await ls();await lt();await ln();S.mySections=S.sections.filter(s=>s.owner===S.uid);S.employees=await A.g('/api/sections/'+S.selSec+'/employees');rsd()}catch(e){toast(e.message,'e')}}
-
-async function at(tid){try{await A.p('/api/transfers/'+tid+'/accept',{});toast('پذیرفته شد');await ls();await lt();await ln();S.mySections=S.sections.filter(s=>s.owner===S.uid);if(S.selSec)S.employees=await A.g('/api/sections/'+S.selSec+'/employees');S.selSec?rsd():rv()}catch(e){toast(e.message,'e')}}
-async function rt(tid){try{await A.p('/api/transfers/'+tid+'/reject',{});toast('رد شد');await ls();await lt();await ln();S.mySections=S.sections.filter(s=>s.owner===S.uid);if(S.selSec)S.employees=await A.g('/api/sections/'+S.selSec+'/employees');S.selSec?rsd():rv()}catch(e){toast(e.message,'e')}}
-
-function tn(){document.getElementById('nd').classList.toggle('show')}
-function rnl(){const el=document.getElementById('nl');if(!S.notifications.length){el.innerHTML='<div class="ne">اعلانی وجود ندارد</div>';return}el.innerHTML=S.notifications.slice(0,20).map(n=>`<div class="ni ${n.read?'':'ur'}" onclick="mr('${n.id}')">${n.message}<span class="nt">${n.timestamp}</span></div>`).join('')}
-async function mr(nid){try{await A.p('/api/notifications/'+nid+'/read',{});await ln()}catch(e){}}
-async function mra(){try{await A.p('/api/notifications/read-all',{});await ln();toast('خوانده شد')}catch(e){}}
-function sn(sid){const s=S.sections.find(x=>x.id===sid);return s?s.name:(sid||'نامشخص')}
-document.addEventListener('click',e=>{const dd=document.getElementById('nd'),btn=document.getElementById('nt');if(dd&&!dd.contains(e.target)&&!btn.contains(e.target))dd.classList.remove('show')});
-document.addEventListener('DOMContentLoaded',init);
-</script></body></html>"""
-
-# ═══════════════════════════════════════════════════════════════
-# مسیرها
-# ═══════════════════════════════════════════════════════════════
-
+# ═══════════════════════════════════════════
+# صفحات
+# ═══════════════════════════════════════════
 @app.route('/')
 def index():
     if 'username' not in session:
-        return Response(HTML_LOGIN, mimetype='text/html')
+        return Response(open('login.html', encoding='utf-8').read(), mimetype='text/html')
     data = load_data()
     if session['username'] == data['admin']['username']:
         return redirect(url_for('admin_page'))
@@ -617,7 +176,7 @@ def admin_page():
     data = load_data()
     if session['username'] != data['admin']['username']:
         return redirect(url_for('index'))
-    return Response(HTML_ADMIN, mimetype='text/html')
+    return Response(open('admin.html', encoding='utf-8').read(), mimetype='text/html')
 
 @app.route('/user')
 def user_page():
@@ -630,15 +189,16 @@ def user_page():
     if not u:
         session.clear()
         return redirect(url_for('index'))
-    return Response(HTML_USER, mimetype='text/html')
+    return Response(open('user.html', encoding='utf-8').read(), mimetype='text/html')
 
 @app.route('/logout')
 def logout():
     session.clear()
     return redirect(url_for('index'))
 
-# --- احراز هویت ---
-
+# ═══════════════════════════════════════════
+# احراز هویت
+# ═══════════════════════════════════════════
 @app.route('/api/login', methods=['POST'])
 def api_login():
     data = load_data()
@@ -659,4 +219,614 @@ def api_login():
             session['role'] = 'user'
             session['user_id'] = uid
             return jsonify({'role': 'user', 'redirect': '/user'})
-    return jsonify({'error': 'نام کاربری یا کد ورود اش
+    return jsonify({'error': 'نام کاربری یا کد ورود اشتباه است'}), 401
+
+@app.route('/api/me', methods=['GET'])
+@login_required
+def api_me():
+    data = load_data()
+    if session['username'] == data['admin']['username']:
+        return jsonify({'role': 'admin', 'username': session['username'],
+                        'display_name': 'مدیر سیستم', 'user_id': None})
+    _, u = user_by_un(data, session['username'])
+    if not u:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({
+        'role': 'user', 'username': u['username'],
+        'display_name': u.get('display_name', u['username']),
+        'user_id': session.get('user_id')
+    })
+
+# ═══════════════════════════════════════════
+# بخش‌ها
+# ═══════════════════════════════════════════
+@app.route('/api/sections', methods=['GET'])
+@login_required
+def api_get_sections():
+    data = load_data()
+    result = []
+    for sid, s in data['sections'].items():
+        result.append({
+            'id': sid, 'name': s['name'],
+            'employee_count': len(s.get('employees', [])),
+            'owner': s.get('owner'),
+            'owner_name': owner_display(data, s.get('owner'))
+        })
+    return jsonify(result)
+
+@app.route('/api/sections', methods=['POST'])
+@login_required
+def api_create_section():
+    data = load_data()
+    name = request.get_json().get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'نام بخش الزامی است'}), 400
+    for s in data['sections'].values():
+        if s['name'] == name:
+            return jsonify({'error': 'بخشی با این نام وجود دارد'}), 400
+    sid = str(uuid.uuid4())[:8]
+    owner = None if session['role'] == 'admin' else session.get('user_id')
+    data['sections'][sid] = {'name': name, 'employees': [], 'owner': owner}
+    who = 'مدیر سیستم' if owner is None else session['username']
+    add_audit(data, 'create_section', session['username'],
+              f'بخش «{name}» ایجاد شد توسط {who}')
+    save_data(data)
+    return jsonify({'id': sid, 'name': name, 'employee_count': 0,
+                    'owner': owner, 'owner_name': owner_display(data, owner)}), 201
+
+@app.route('/api/sections/<sid>', methods=['DELETE'])
+@login_required
+@can_manage
+def api_delete_section(sid):
+    data = load_data()
+    name = data['sections'][sid]['name']
+    # کارکنان باقی‌مانده به تسویه منتقل می‌شوند
+    for emp in data['sections'][sid].get('employees', []):
+        data['settlements'].append({
+            'id': str(uuid.uuid4())[:8], 'employee': dict(emp),
+            'from_section': sid, 'from_section_name': name,
+            'initiated_by': session['username'],
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+    # انتقال‌های معلق مربوطه رد می‌شوند
+    for t in data['transfers']:
+        if t['status'] == 'pending' and (t['from_section'] == sid or t['to_section'] == sid):
+            t['status'] = 'rejected'
+            if t['from_section'] != sid and t['from_section'] in data['sections']:
+                data['sections'][t['from_section']]['employees'].append(t['employee'])
+    del data['sections'][sid]
+    add_audit(data, 'delete_section', session['username'],
+              f'بخش «{name}» حذف شد (کارکنان به تسویه منتقل شدند)')
+    save_data(data)
+    return jsonify({'message': 'بخش حذف شد'})
+
+@app.route('/api/sections/<sid>/owner', methods=['PUT'])
+@admin_required
+def api_change_owner(sid):
+    data = load_data()
+    if sid not in data['sections']:
+        return jsonify({'error': 'بخش یافت نشد'}), 404
+    new_owner = request.get_json().get('owner') or None
+    if new_owner and new_owner not in data['users']:
+        return jsonify({'error': 'کاربر یافت نشد'}), 404
+    old_name = owner_display(data, data['sections'][sid].get('owner'))
+    data['sections'][sid]['owner'] = new_owner
+    new_name = owner_display(data, new_owner)
+    add_audit(data, 'change_owner', session['username'],
+              f'مالک بخش «{data["sections"][sid]["name"]}» از {old_name} به {new_name} تغییر کرد')
+    save_data(data)
+    return jsonify({'message': 'مالک تغییر کرد'})
+
+@app.route('/api/sections/<sid>/employees', methods=['GET'])
+@login_required
+@can_manage
+def api_get_employees(sid):
+    data = load_data()
+    return jsonify(data['sections'][sid].get('employees', []))
+
+@app.route('/api/sections/<sid>/employees', methods=['POST'])
+@login_required
+@can_manage
+def api_add_employees(sid):
+    data = load_data()
+    employees = request.get_json().get('employees', [])
+    if not employees:
+        return jsonify({'error': 'لیست خالی است'}), 400
+    added, errors = [], []
+    for emp in employees:
+        name = emp.get('name', '').strip()
+        family = emp.get('family', '').strip()
+        code = emp.get('code', '').strip()
+        if not name or not family or not code:
+            errors.append(f'اطلاعات ناقص: {name} {family} {code}')
+            continue
+        if not code_unique(data, code):
+            errors.append(f'کد پرسنلی تکراری: {code}')
+            continue
+        new_emp = {'id': str(uuid.uuid4())[:8], 'name': name, 'family': family, 'code': code}
+        data['sections'][sid]['employees'].append(new_emp)
+        added.append(new_emp)
+    if added:
+        sname = data['sections'][sid]['name']
+        add_audit(data, 'add_employees', session['username'],
+                  f'{len(added)} نفر به بخش «{sname}» اضافه شدند')
+        save_data(data)
+    return jsonify({'added': added, 'errors': errors})
+
+@app.route('/api/sections/<sid>/employees/upload', methods=['POST'])
+@login_required
+@can_manage
+def api_upload_employees(sid):
+    data = load_data()
+    if 'file' not in request.files:
+        return jsonify({'error': 'فایلی انتخاب نشده'}), 400
+    file = request.files['file']
+    if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+        return jsonify({'error': 'فقط فایل xlsx یا xls'}), 400
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(file, data_only=True)
+        ws = wb.active
+        headers = [str(c.value or '').strip() for c in ws[1]]
+        name_c, family_c, code_c = None, None, None
+        for i, h in enumerate(headers):
+            hl = h.lower()
+            if 'نام' in h and 'خانوادگی' not in hl and name_c is None:
+                name_c = i
+            elif 'خانوادگی' in h:
+                family_c = i
+            elif 'پرسنلی' in h or ('کد' in h and code_c is None):
+                code_c = i
+        if name_c is None: name_c = 0
+        if family_c is None: family_c = 1
+        if code_c is None: code_c = 2
+        added, errors = [], []
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if not row or all(c is None for c in row):
+                continue
+            name = str(row[name_c] or '').strip()
+            family = str(row[family_c] or '').strip()
+            code = str(row[code_c] or '').strip()
+            if not name and not family and not code:
+                continue
+            if not name or not family or not code:
+                errors.append(f'ردیف {row_idx}: اطلاعات ناقص')
+                continue
+            if not code_unique(data, code):
+                errors.append(f'ردیف {row_idx}: کد تکراری {code}')
+                continue
+            new_emp = {'id': str(uuid.uuid4())[:8], 'name': name, 'family': family, 'code': code}
+            data['sections'][sid]['employees'].append(new_emp)
+            added.append(new_emp)
+        if added:
+            sname = data['sections'][sid]['name']
+            msg = f'{len(added)} نفر از فایل به بخش «{sname}» اضافه شدند'
+            if errors:
+                msg += f' ({len(errors)} خطا)'
+            add_audit(data, 'upload_employees', session['username'], msg)
+            save_data(data)
+        return jsonify({'added': added, 'errors': errors})
+    except Exception as e:
+        return jsonify({'error': f'خطا در خواندن فایل: {str(e)}'}), 400
+
+@app.route('/api/sections/<sid>/employees/<eid>', methods=['DELETE'])
+@login_required
+@can_manage
+def api_delete_employee(sid, eid):
+    data = load_data()
+    emps = data['sections'][sid]['employees']
+    emp = next((e for e in emps if e['id'] == eid), None)
+    if not emp:
+        return jsonify({'error': 'کارمند یافت نشد'}), 404
+    emps.remove(emp)
+    sname = data['sections'][sid]['name']
+    add_audit(data, 'delete_employee', session['username'],
+              f'«{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) از بخش «{sname}» حذف شد')
+    save_data(data)
+    return jsonify({'message': 'حذف شد'})
+
+@app.route('/api/sections/<sid>/export', methods=['GET'])
+@login_required
+@can_manage
+def api_export_section(sid):
+    data = load_data()
+    sname = data['sections'][sid]['name']
+    emps = data['sections'][sid].get('employees', [])
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sname[:31]
+    ws.append(['نام', 'نام خانوادگی', 'کد پرسنلی'])
+    for e in emps:
+        ws.append([e['name'], e['family'], e['code']])
+    for col in ws.columns:
+        mx = 0
+        cl = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                mx = max(mx, len(str(cell.value)))
+        ws.column_dimensions[cl].width = max(mx + 4, 14)
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name=f'{sname}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+# ═══════════════════════════════════════════
+# انتقال‌ها
+# ═══════════════════════════════════════════
+@app.route('/api/transfers', methods=['GET'])
+@login_required
+def api_get_transfers():
+    data = load_data()
+    if session['role'] != 'admin':
+        my_secs = [sid for sid, s in data['sections'].items()
+                    if s.get('owner') == session.get('user_id')]
+        return jsonify([t for t in data['transfers']
+                        if t['from_section'] in my_secs or t['to_section'] in my_secs])
+    return jsonify(data['transfers'])
+
+@app.route('/api/transfers', methods=['POST'])
+@login_required
+def api_create_transfer():
+    data = load_data()
+    req = request.get_json()
+    eid = req.get('employee_id')
+    from_s = req.get('from_section')
+    to_s = req.get('to_section')
+    if not eid or not from_s or not to_s:
+        return jsonify({'error': 'اطلاعات ناقص'}), 400
+    if from_s == to_s:
+        return jsonify({'error': 'بخش مبدأ و مقصد یکسان است'}), 400
+    if from_s not in data['sections'] or to_s not in data['sections']:
+        return jsonify({'error': 'بخش یافت نشد'}), 404
+    # بررسی دسترسی: مالک مبدأ یا ادمین
+    if session['role'] != 'admin':
+        sec = data['sections'][from_s]
+        if sec.get('owner') != session.get('user_id'):
+            return jsonify({'error': 'دسترسی محدود است'}), 403
+    emps = data['sections'][from_s]['employees']
+    emp = next((e for e in emps if e['id'] == eid), None)
+    if not emp:
+        return jsonify({'error': 'کارمند یافت نشد'}), 404
+
+    from_name = data['sections'][from_s]['name']
+    to_name = data['sections'][to_s]['name']
+    emp_copy = dict(emp)
+
+    # ادمین: انتقال مستقیم
+    if session['role'] == 'admin':
+        if not code_unique(data, emp['code'], exclude_emp_id=emp['id']):
+            return jsonify({'error': f'کد پرسنلی {emp["code"]} در بخش مقصد تکراری است'}), 400
+        emps.remove(emp)
+        data['sections'][to_s]['employees'].append(emp_copy)
+        transfer = {
+            'id': str(uuid.uuid4())[:8], 'employee': emp_copy,
+            'from_section': from_s, 'to_section': to_s,
+            'status': 'completed', 'initiated_by': session['username'],
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'completed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        data['transfers'].append(transfer)
+        add_audit(data, 'transfer', session['username'],
+                  f'«{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) از «{from_name}» به «{to_name}» - مستقیم توسط مدیر')
+        dest_un = username_by_id(data, data['sections'][to_s].get('owner'))
+        if dest_un:
+            add_notif(data, dest_un,
+                      f'«{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) توسط مدیر به بخش «{to_name}» اضافه شد',
+                      transfer['id'])
+        save_data(data)
+        return jsonify(transfer)
+
+    # کاربر: انتقال با تایید
+    emps.remove(emp)
+    transfer = {
+        'id': str(uuid.uuid4())[:8], 'employee': emp_copy,
+        'from_section': from_s, 'to_section': to_s,
+        'status': 'pending', 'initiated_by': session['username'],
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    data['transfers'].append(transfer)
+    add_audit(data, 'transfer_initiated', session['username'],
+              f'درخواست انتقال «{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) از «{from_name}» به «{to_name}»')
+    dest_un = username_by_id(data, data['sections'][to_s].get('owner'))
+    if dest_un:
+        add_notif(data, dest_un,
+                  f'درخواست انتقال: «{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) منتظر تایید شماست',
+                  transfer['id'])
+    save_data(data)
+    return jsonify(transfer)
+
+@app.route('/api/transfers/<tid>/accept', methods=['POST'])
+@login_required
+@can_accept_transfer
+def api_accept_transfer(tid):
+    data = load_data()
+    transfer = next((t for t in data['transfers'] if t['id'] == tid), None)
+    if not transfer or transfer['status'] != 'pending':
+        return jsonify({'error': 'این انتقال قبلاً پردازش شده'}), 400
+    if not code_unique(data, transfer['employee']['code']):
+        transfer['status'] = 'rejected'
+        if transfer['from_section'] in data['sections']:
+            data['sections'][transfer['from_section']]['employees'].append(transfer['employee'])
+        add_audit(data, 'transfer_rejected', session['username'],
+                  f'انتقال «{transfer["employee"]["name"]} {transfer["employee"]["family"]}» رد شد - کد پرسنلی تکراری')
+        src_un = username_by_id(data, data['sections'].get(transfer['from_section'], {}).get('owner'))
+        if src_un:
+            add_notif(data, src_un,
+                      f'درخواست انتقال «{transfer["employee"]["name"]} {transfer["employee"]["family"]}» رد شد - کد پرسنلی تکراری',
+                      tid)
+        save_data(data)
+        return jsonify({'error': 'کد پرسنلی تکراری است. انتقال رد شد و کارمند به مبدأ بازگشت.'}), 400
+    data['sections'][transfer['to_section']]['employees'].append(transfer['employee'])
+    transfer['status'] = 'accepted'
+    transfer['accepted_by'] = session['username']
+    transfer['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    fn = sec_name(data, transfer['from_section'])
+    tn = sec_name(data, transfer['to_section'])
+    add_audit(data, 'transfer_accepted', session['username'],
+              f'«{transfer["employee"]["name"]} {transfer["employee"]["family"]}» (کد: {transfer["employee"]["code"]}) از «{fn}» به «{tn}» پذیرفته شد')
+    src_un = username_by_id(data, data['sections'].get(transfer['from_section'], {}).get('owner'))
+    if src_un:
+        add_notif(data, src_un,
+                  f'«{transfer["employee"]["name"]} {transfer["employee"]["family"]}» (کد: {transfer["employee"]["code"]}) توسط بخش «{tn}» پذیرفته شد',
+                  tid)
+    save_data(data)
+    return jsonify(transfer)
+
+@app.route('/api/transfers/<tid>/reject', methods=['POST'])
+@login_required
+@can_accept_transfer
+def api_reject_transfer(tid):
+    data = load_data()
+    transfer = next((t for t in data['transfers'] if t['id'] == tid), None)
+    if not transfer or transfer['status'] != 'pending':
+        return jsonify({'error': 'این انتقال قبلاً پردازش شده'}), 400
+    if transfer['from_section'] in data['sections']:
+        data['sections'][transfer['from_section']]['employees'].append(transfer['employee'])
+    transfer['status'] = 'rejected'
+    transfer['rejected_by'] = session['username']
+    transfer['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    add_audit(data, 'transfer_rejected', session['username'],
+              f'انتقال «{transfer["employee"]["name"]} {transfer["employee"]["family"]}» (کد: {transfer["employee"]["code"]}) رد شد')
+    src_un = username_by_id(data, data['sections'].get(transfer['from_section'], {}).get('owner'))
+    if src_un:
+        add_notif(data, src_un,
+                  f'درخواست انتقال «{transfer["employee"]["name"]} {transfer["employee"]["family"]}» رد شد',
+                  tid)
+    save_data(data)
+    return jsonify(transfer)
+
+# ═══════════════════════════════════════════
+# تسویه‌ها
+# ═══════════════════════════════════════════
+@app.route('/api/settlements', methods=['GET'])
+@login_required
+def api_get_settlements():
+    data = load_data()
+    return jsonify(data.get('settlements', []))
+
+@app.route('/api/settlements', methods=['POST'])
+@login_required
+def api_create_settlement():
+    data = load_data()
+    req = request.get_json()
+    eid = req.get('employee_id')
+    from_s = req.get('from_section')
+    if not eid or not from_s:
+        return jsonify({'error': 'اطلاعات ناقص'}), 400
+    if from_s not in data['sections']:
+        return jsonify({'error': 'بخش یافت نشد'}), 404
+    if session['role'] != 'admin':
+        sec = data['sections'][from_s]
+        if sec.get('owner') != session.get('user_id'):
+            return jsonify({'error': 'دسترسی محدود است'}), 403
+    emps = data['sections'][from_s]['employees']
+    emp = next((e for e in emps if e['id'] == eid), None)
+    if not emp:
+        return jsonify({'error': 'کارمند یافت نشد'}), 404
+    emps.remove(emp)
+    sname = data['sections'][from_s]['name']
+    settlement = {
+        'id': str(uuid.uuid4())[:8], 'employee': dict(emp),
+        'from_section': from_s, 'from_section_name': sname,
+        'initiated_by': session['username'],
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    data['settlements'].append(settlement)
+    add_audit(data, 'settlement', session['username'],
+              f'«{emp["name"]} {emp["family"]}» (کد: {emp["code"]}) از بخش «{sname}» به تسویه منتقل شد')
+    save_data(data)
+    return jsonify(settlement)
+
+@app.route('/api/settlements/export', methods=['GET'])
+@admin_required
+def api_export_settlements():
+    data = load_data()
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'تسویه'
+    ws.append(['نام', 'نام خانوادگی', 'کد پرسنلی', 'بخش مبدأ', 'تاریخ تسویه', 'توسط'])
+    for s in data.get('settlements', []):
+        ws.append([s['employee']['name'], s['employee']['family'],
+                   s['employee']['code'], s['from_section_name'],
+                   s['timestamp'], s['initiated_by']])
+    for col in ws.columns:
+        mx = 0
+        cl = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                mx = max(mx, len(str(cell.value)))
+        ws.column_dimensions[cl].width = max(mx + 4, 14)
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name='settlements.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+# ═══════════════════════════════════════════
+# کاربران (فقط ادمین)
+# ═══════════════════════════════════════════
+@app.route('/api/users', methods=['GET'])
+@admin_required
+def api_get_users():
+    data = load_data()
+    return jsonify([{
+        'id': uid, 'username': u['username'],
+        'display_name': u.get('display_name', ''),
+        'section_count': len([s for s in data['sections'].values()
+                              if s.get('owner') == uid])
+    } for uid, u in data['users'].items()])
+
+@app.route('/api/users', methods=['POST'])
+@admin_required
+def api_create_user():
+    data = load_data()
+    req = request.get_json()
+    username = req.get('username', '').strip()
+    password = req.get('password', '').strip()
+    display_name = req.get('display_name', '').strip()
+    if not username or not password:
+        return jsonify({'error': 'نام کاربری و کد ورود الزامی است'}), 400
+    if len(password) < 3:
+        return jsonify({'error': 'کد ورود حداقل ۳ کاراکتر'}), 400
+    if username == data['admin']['username']:
+        return jsonify({'error': 'این نام کاربری رزرو شده'}), 400
+    for u in data['users'].values():
+        if u['username'] == username:
+            return jsonify({'error': 'نام کاربری تکراری'}), 400
+    uid = str(uuid.uuid4())[:8]
+    data['users'][uid] = {
+        'username': username, 'password': password,
+        'display_name': display_name or username
+    }
+    add_audit(data, 'create_user', session['username'],
+              f'کاربر «{display_name or username}» ({username}) ایجاد شد')
+    save_data(data)
+    return jsonify({'id': uid, 'username': username,
+                    'display_name': display_name or username}), 201
+
+@app.route('/api/users/<uid>', methods=['PUT'])
+@admin_required
+def api_update_user(uid):
+    data = load_data()
+    if uid not in data['users']:
+        return jsonify({'error': 'کاربر یافت نشد'}), 404
+    req = request.get_json()
+    u = data['users'][uid]
+    if 'password' in req and req['password'].strip():
+        if len(req['password'].strip()) < 3:
+            return jsonify({'error': 'کد ورود حداقل ۳ کاراکتر'}), 400
+        u['password'] = req['password'].strip()
+    if 'display_name' in req:
+        u['display_name'] = req['display_name'].strip() or u['username']
+    add_audit(data, 'update_user', session['username'],
+              f'اطلاعات کاربر «{u["display_name"]}» ({u["username"]}) ویرایش شد')
+    save_data(data)
+    return jsonify({'id': uid, 'username': u['username'],
+                    'display_name': u['display_name']})
+
+@app.route('/api/users/<uid>', methods=['DELETE'])
+@admin_required
+def api_delete_user(uid):
+    data = load_data()
+    if uid not in data['users']:
+        return jsonify({'error': 'کاربر یافت نشد'}), 404
+    u = data['users'][uid]
+    # بخش‌های این کاربر به ادمین منتقل می‌شود
+    for s in data['sections'].values():
+        if s.get('owner') == uid:
+            s['owner'] = None
+    add_audit(data, 'delete_user', session['username'],
+              f'کاربر «{u["display_name"]}» ({u["username"]}) حذف شد - بخش‌ها به مدیر منتقل شدند')
+    del data['users'][uid]
+    save_data(data)
+    return jsonify({'message': 'کاربر حذف شد'})
+
+# ═══════════════════════════════════════════
+# اعلان‌ها
+# ═══════════════════════════════════════════
+@app.route('/api/notifications', methods=['GET'])
+@login_required
+def api_get_notifications():
+    data = load_data()
+    return jsonify([n for n in data.get('notifications', [])
+                    if n['target_username'] == session['username']])
+
+@app.route('/api/notifications/<nid>/read', methods=['POST'])
+@login_required
+def api_read_notif(nid):
+    data = load_data()
+    for n in data.get('notifications', []):
+        if n['id'] == nid and n['target_username'] == session['username']:
+            n['read'] = True
+            save_data(data)
+            return jsonify({'message': 'ok'})
+    return jsonify({'error': 'not found'}), 404
+
+@app.route('/api/notifications/read-all', methods=['POST'])
+@login_required
+def api_read_all_notifs():
+    data = load_data()
+    for n in data.get('notifications', []):
+        if n['target_username'] == session['username']:
+            n['read'] = True
+    save_data(data)
+    return jsonify({'message': 'ok'})
+
+# ═══════════════════════════════════════════
+# گزارش تغییرات
+# ═══════════════════════════════════════════
+@app.route('/api/audit-log', methods=['GET'])
+@admin_required
+def api_get_audit():
+    data = load_data()
+    return jsonify(data.get('audit_log', []))
+
+@app.route('/api/audit-log/export', methods=['GET'])
+@admin_required
+def api_export_audit():
+    data = load_data()
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'گزارش تغییرات'
+    ws.append(['ردیف', 'تاریخ و ساعت', 'عملیات', 'کاربر', 'جزئیات'])
+    for i, log in enumerate(data.get('audit_log', []), 1):
+        ws.append([i, log['timestamp'], log['action'], log['user'], log['details']])
+    for col in ws.columns:
+        mx = 0
+        cl = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                mx = max(mx, len(str(cell.value)))
+        ws.column_dimensions[cl].width = max(mx + 4, 14)
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name='audit_log.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+# ═══════════════════════════════════════════
+# تغییر رمز مدیر
+# ═══════════════════════════════════════════
+@app.route('/api/admin/change-password', methods=['POST'])
+@admin_required
+def api_change_pw():
+    data = load_data()
+    req = request.get_json()
+    old_pw = req.get('old_password', '')
+    new_pw = req.get('new_password', '').strip()
+    if old_pw != data['admin']['password']:
+        return jsonify({'error': 'کد ورود فعلی اشتباه است'}), 400
+    if not new_pw or len(new_pw) < 3:
+        return jsonify({'error': 'کد ورود جدید حداقل ۳ کاراکتر'}), 400
+    data['admin']['password'] = new_pw
+    add_audit(data, 'change_password', session['username'], 'تغییر کد ورود مدیر')
+    save_data(data)
+    return jsonify({'message': 'تغییر کرد'})
+
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
