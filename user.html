@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>پنل کاربر - سیستم منابع انسانی</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="header">
+  <div class="hlogo"><div class="lb">HR</div><span id="hsn">پنل کاربر</span></div>
+  <div class="hacts">
+    <span class="huser" id="hun"></span>
+    <div style="position:relative">
+      <button class="nbtn" onclick="tn()" id="nt">&#x1F514;<span class="nbdg" id="nc" style="display:none">0</span></button>
+      <div class="ndd" id="nd">
+        <div class="nddh"><h4>اعلان‌ها</h4><button class="btn btn-g btn-sm" onclick="mra()">خواندن همه</button></div>
+        <div id="nl"><div class="ne">اعلانی وجود ندارد</div></div>
+      </div>
+    </div>
+    <a href="/logout" class="btn btn-g btn-sm">خروج</a>
+  </div>
+</header>
+<main class="main"><div id="ar"><div class="spin"></div></div></main>
+
+<!-- مودال‌ها -->
+<div class="mo" id="msec"><div class="md"><div class="mh"><h3>ایجاد بخش جدید</h3><button class="mx" onclick="cm('msec')">&times;</button></div><div class="mb"><div class="fg"><label class="fl">نام بخش</label><input type="text" id="sni" placeholder="مثلاً: تولید آلبالو"></div></div><div class="mf"><button class="btn btn-p" onclick="cs()">ایجاد</button><button class="btn btn-g" onclick="cm('msec')">انصراف</button></div></div></div>
+<div class="mo" id="memp"><div class="md"><div class="mh"><h3>افزودن کارمند</h3><button class="mx" onclick="cm('memp')">&times;</button></div><div class="mb"><div id="erows"></div><button class="btn btn-g btn-sm" onclick="aer()" style="margin-top:8px">+ افزودن ردیف</button></div><div class="mf"><button class="btn btn-p" onclick="se()">ذخیره</button><button class="btn btn-g" onclick="cm('memp')">انصراف</button></div></div></div>
+<div class="mo" id="mup"><div class="md"><div class="mh"><h3>آپلود فایل اکسل</h3><button class="mx" onclick="cm('mup')">&times;</button></div><div class="mb"><p class="fh" style="margin-bottom:12px">فایل باید شامل ستون‌های «نام»، «نام خانوادگی» و «کد پرسنلی» باشد.</p><input type="file" id="efile" accept=".xlsx,.xls"></div><div class="mf"><button class="btn btn-p" onclick="ue()">آپلود</button><button class="btn btn-g" onclick="cm('mup')">انصراف</button></div></div></div>
+<div class="mo" id="mtr"><div class="md"><div class="mh"><h3>انتقال کارمند</h3><button class="mx" onclick="cm('mtr')">&times;</button></div><div class="mb"><p id="tei" style="margin-bottom:14px;font-weight:600"></p><div class="fg"><label class="fl">بخش مقصد</label><select id="tdes"></select></div><p class="fh" style="color:var(--wn);margin-top:8px">پس از ارسال، کارمند منتظر تایید مسئول بخش مقصد خواهد بود.</p></div><div class="mf"><button class="btn btn-p" onclick="ct()">ارسال درخواست</button><button class="btn btn-g" onclick="cm('mtr')">انصراف</button></div></div></div>
+<div class="mo" id="mcf"><div class="md" style="max-width:400px"><div class="mh"><h3>تایید عملیات</h3><button class="mx" onclick="cm('mcf')">&times;</button></div><div class="mb"><p id="cfm"></p></div><div class="mf"><button class="btn btn-d" id="cfb">تایید</button><button class="btn btn-g" onclick="cm('mcf')">انصراف</button></div></div></div>
+
+<div id="tc"></div>
+<script src="/app.js"></script>
+<script>
+var S={me:null,uid:null,sections:[],mySecs:[],selSec:null,employees:[],transfers:[],notifications:[],sq:'',trEid:null};
+
+async function init(){
+  try{
+    S.me=await A.g('/api/me');S.uid=S.me.user_id;
+    document.getElementById('hsn').textContent='پنل '+S.me.display_name;
+    document.getElementById('hun').textContent=S.me.display_name;
+    await Promise.all([ls(),lt(),ln()]);
+    S.mySecs=S.sections.filter(function(s){return s.owner===S.uid});
+    if(!S.mySecs.length){rns();return}
+    rv();
+  }catch(e){document.getElementById('ar').innerHTML='<p style="color:var(--dn);text-align:center;padding:40px">'+e.message+'</p>'}
+}
+async function ls(){S.sections=await A.g('/api/sections')}
+async function lt(){S.transfers=await A.g('/api/transfers')}
+async function ln(){S.notifications=await A.g('/api/notifications');var u=S.notifications.filter(function(n){return !n.read}).length;var b=document.getElementById('nc');if(u>0){b.style.display='flex';b.textContent=u>9?'9+':u}else{b.style.display='none'}rnl()}
+
+function rns(){
+  document.getElementById('ar').innerHTML='<div style="text-align:center;padding:80px 24px"><div style="font-size:3.5rem;margin-bottom:16px;opacity:.3">&#x1F3E2;</div><h2 style="margin-bottom:12px">بخشی ایجاد نشده است</h2><p style="color:var(--t3);margin-bottom:24px">شما هنوز بخشی ایجاد نکرده‌اید. اولین بخش خود را بسازید.</p><button class="btn btn-p" onclick="om(\'msec\');document.getElementById(\'sni\').focus()" style="margin:0 auto">+ ایجاد اولین بخش</button></div>';
+}
+
+function rv(){
+  var pi=S.transfers.filter(function(t){return t.status==='pending'&&S.mySecs.some(function(s){return s.id===t.to_section})});
+  var po=S.transfers.filter(function(t){return t.status==='pending'&&S.mySecs.some(function(s){return s.id===t.from_section})});
+  var te=S.mySecs.reduce(function(s,x){return s+x.employee_count},0);
+  var h='<div style="max-width:1200px;margin:0 auto"><div class="sg">';
+  h+='<div class="sc"><span class="sl">بخش‌های من</span><span class="sv a1">'+S.mySecs.length+'</span></div>';
+  h+='<div class="sc"><span class="sl">کل کارکنان</span><span class="sv i1">'+te+'</span></div>';
+  h+='<div class="sc"><span class="sl">درخواست دریافتی</span><span class="sv w1">'+pi.length+'</span></div>';
+  h+='<div class="sc"><span class="sl">درخواست ارسالی</span><span class="sv">'+po.length+'</span></div></div>';
+
+  if(pi.length>0){
+    h+='<div class="card" style="border-color:var(--wnB);margin-bottom:20px"><h3 style="color:var(--wn);margin-bottom:12px;font-size:.95rem">درخواست‌های انتقال دریافتی (نیاز به تایید شما)</h3>';
+    pi.forEach(function(t){
+      h+='<div class="pc"><div class="pch"><span class="pn">'+t.employee.name+' '+t.employee.family+'</span><span class="pk">کد: '+t.employee.code+'</span></div>';
+      h+='<div class="pf">از: '+sn(t.from_section)+' | توسط: '+t.initiated_by+'</div>';
+      h+='<div class="pa">'+trBtns(t)+'</div>'+trHist(t.history)+'</div>';
+    });h+='</div>';
+  }
+
+  h+='<div class="tb"><h2 class="pt" style="margin-bottom:0">بخش‌های من</h2><div class="tb-sp"></div><button class="btn btn-p" onclick="om(\'msec\');document.getElementById(\'sni\').focus()">+ ایجاد بخش</button></div>';
+  h+='<div class="sec-g">';
+  S.mySecs.forEach(function(s){
+    h+='<div class="secc" onclick="osd(\''+s.id+'\')"><button class="xsec" onclick="event.stopPropagation();cds(\''+s.id+'\',\''+s.name+'\')">&times;</button><div class="sn">'+s.name+'</div><div class="scn"><span>'+s.employee_count+'</span> نفر</div></div>';
+  });
+  h+='</div>';
+
+  if(po.length>0){
+    h+='<h2 class="pt" style="margin-top:28px">درخواست‌های ارسالی در انتظار</h2><div class="card">';
+    po.forEach(function(t){
+      h+='<div class="pc" style="border-color:var(--infB)"><div class="pch"><span class="pn">'+t.employee.name+' '+t.employee.family+'</span><span class="badge b-pen">در انتظار</span></div><div class="pf">به: '+sn(t.to_section)+'</div>'+trHist(t.history)+'</div>';
+    });h+='</div>';
+  }
+  h+='</div>';document.getElementById('ar').innerHTML=h;
+}
+
+async function cs(){var n=document.getElementById('sni').value.trim();if(!n)return toast('نام بخش را وارد کنید','e');try{await A.p('/api/sections',{name:n});toast('بخش ایجاد شد');cm('msec');document.getElementById('sni').value='';await ls();S.mySecs=S.sections.filter(function(s){return s.owner===S.uid});rv()}catch(e){toast(e.message,'e')}}
+function cds(id,nm){document.getElementById('cfm').textContent='آیا از حذف بخش «'+nm+'» اطمینان دارید؟ کارکنان به تسویه منتقل می‌شوند.';document.getElementById('cfb').onclick=async function(){try{await A.d('/api/sections/'+id);toast('بخش حذف شد');cm('mcf');await ls();await lt();S.mySecs=S.sections.filter(function(s){return s.owner===S.uid});rv()}catch(e){toast(e.message,'e')}};om('mcf')}
+
+async function osd(sid){S.selSec=sid;S.employees=await A.g('/api/sections/'+sid+'/employees');S.sq='';rsd()}
+
+function rsd(){
+  var sec=S.mySecs.find(function(s){return s.id===S.selSec});if(!sec)return rv();
+  var q=S.sq.toLowerCase();
+  var f=q?S.employees.filter(function(e){return (e.name+' '+e.family+' '+e.code).toLowerCase().includes(q)}):S.employees;
+  var other=S.sections.filter(function(s){return s.id!==S.selSec});
+  
+  var h='<div style="max-width:1200px;margin:0 auto">';
+  h+='<div class="tb"><button class="btn btn-g btn-sm" onclick="rv()">&#x2190; بازگشت</button><div class="tb-sp"></div>';
+  h+='<button class="btn btn-g btn-sm" onclick="window.open(\'/api/sections/'+S.selSec+'/export\',\'_blank\')">&#x1F4E5; خروجی اکسل</button>';
+  h+='<button class="btn btn-g btn-sm" onclick="om(\'mup\')">&#x1F4C1; آپلود اکسل</button>';
+  h+='<button class="btn btn-p btn-sm" onclick="oae()">+ افزودن کارمند</button></div>';
+  h+='<h2 class="pt">'+sec.name+' <span style="font-size:.85rem;color:var(--t3);font-weight:400">('+f.length+' نفر)</span></h2>';
+  
+  h+='<div class="tb"><div class="sb"><span class="sic">&#x1F50D;</span><input type="text" placeholder="جستجو بر اساس نام، نام خانوادگی یا کد پرسنلی..." value="'+S.sq+'" oninput="S.sq=this.value;safeRender(rsd)"></div></div>';
+  
+  if(!f.length)h+='<div class="es"><div class="ei">&#x1F464;</div><p>کارمندی وجود ندارد</p></div>';
+  else{
+    h+='<div class="tw" style="margin-bottom:16px"><table><thead><tr><th>ردیف</th><th>نام</th><th>نام خانوادگی</th><th>کد پرسنلی</th><th>عملیات</th></tr></thead><tbody>';
+    f.forEach(function(e,i){
+      h+='<tr draggable="true" ondragstart="ds(event,\''+e.id+'\',\''+e.name+' '+e.family+'\',\''+e.code+'\')" ondragend="de(event)">';
+      h+='<td>'+(i+1)+'</td><td>'+e.name+'</td><td>'+e.family+'</td><td style="font-weight:600;direction:ltr;text-align:right">'+e.code+'</td>';
+      h+='<td><button class="btn btn-g btn-sm" onclick="stm(\''+e.id+'\',\''+e.name+' '+e.family+'\',\''+e.code+'\')" title="انتقال">&#x1F504;</button>';
+      h+='<button class="btn btn-g btn-sm" onclick="stl(\''+e.id+'\',\''+e.name+' '+e.family+'\')" title="تسویه" style="color:var(--wn)">&#x1F4B0;</button>';
+      h+='<button class="btn btn-d btn-sm btn-ic" onclick="cde(\''+e.id+'\',\''+e.name+' '+e.family+'\')" title="حذف">&times;</button></td></tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  
+  if(other.length>0){
+    h+='<div class="dzs"><div class="dz" ondragover="event.preventDefault();this.classList.add(\'da\')" ondragleave="this.classList.remove(\'da\')" ondrop="dt(event)"><span class="di">&#x1F504;</span><span class="dl">انتقال به بخش دیگر</span><span class="dh">کارمند را بکشید و رها کنید</span></div>';
+    h+='<div class="dz sz" ondragover="event.preventDefault();this.classList.add(\'da\')" ondragleave="this.classList.remove(\'da\')" ondrop="dsel(event)"><span class="di">&#x1F4B0;</span><span class="dl">انتقال به تسویه</span><span class="dh">کارمند را بکشید و رها کنید</span></div></div>';
+  }
+  h+='</div>';document.getElementById('ar').innerHTML=h;
+}
+
+async function at(tid){try{await A.p('/api/transfers/'+tid+'/accept',{});toast('پذیرفته شد');await ls();await lt();await ln();S.mySecs=S.sections.filter(function(s){return s.owner===S.uid});if(S.selSec)S.employees=await A.g('/api/sections/'+S.selSec+'/employees');S.selSec?safeRender(rsd):rv()}catch(e){toast(e.message,'e')}}
+async function rt(tid){try{await A.p('/api/transfers/'+tid+'/reject',{});toast('رد شد');await ls();await lt();await ln();S.mySecs=S.sections.filter(function(s){return s.owner===S.uid});if(S.selSec)S.employees=await A.g('/api/sections/'+S.selSec+'/employees');S.selSec?safeRender(rsd):rv()}catch(e){toast(e.message,'e')}}
+
+document.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>
