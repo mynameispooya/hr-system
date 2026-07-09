@@ -1,53 +1,73 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>ورود - سیستم مدیریت منابع انسانی</title>
-<link rel="stylesheet" href="/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ورود | سیستم مدیریت منابع انسانی</title>
+    <link rel="stylesheet" href="/style.css">
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
 </head>
-<body>
-<div class="lp">
-  <div class="lbg"></div>
-  <div class="lc">
-    <div class="llo">
-      <div class="lbx">HR</div>
-      <h1>سیستم مدیریت منابع انسانی</h1>
-      <p>برای ورود نام کاربری و کد ورود خود را وارد کنید</p>
+<body class="login-page">
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo">
+                    <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                </div>
+                <h1>سیستم مدیریت منابع انسانی</h1>
+                <p class="login-subtitle">برای ورود، اطلاعات خود را وارد کنید</p>
+            </div>
+
+            <form id="login-form" class="login-form">
+                <div class="form-group">
+                    <label for="username">نام کاربری</label>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        name="username" 
+                        placeholder="نام کاربری خود را وارد کنید"
+                        required
+                        autocomplete="username"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">رمز عبور</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        placeholder="رمز عبور خود را وارد کنید"
+                        required
+                        autocomplete="current-password"
+                    >
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block login-btn">
+                    <span class="btn-text">ورود به سیستم</span>
+                    <span class="btn-loader" style="display: none;">
+                        <div class="spinner-small"></div>
+                    </span>
+                </button>
+            </form>
+
+            <div class="login-footer">
+                <p>نسخه ۱.۰.۰ | توسعه یافته با ❤️</p>
+            </div>
+        </div>
+
+        <div class="login-background">
+            <div class="bg-shape bg-shape-1"></div>
+            <div class="bg-shape bg-shape-2"></div>
+            <div class="bg-shape bg-shape-3"></div>
+        </div>
     </div>
-    <div id="le" class="le"></div>
-    <form id="lf" onsubmit="hl(event)">
-      <div class="fg">
-        <label class="fl">نام کاربری</label>
-        <input type="text" id="lu" placeholder="نام کاربری" autocomplete="username" required>
-      </div>
-      <div class="fg">
-        <label class="fl">کد ورود</label>
-        <input type="password" id="lpw" placeholder="کد ورود" autocomplete="current-password" required>
-      </div>
-      <button type="submit" class="btn btn-p" style="width:100%;justify-content:center;margin-top:8px" id="lbtn">ورود به سیستم</button>
-    </form>
-  </div>
-</div>
-<div id="tc"></div>
-<script src="/app.js"></script>
-<script>
-async function hl(e) {
-    e.preventDefault();
-    var b = document.getElementById('lbtn'), er = document.getElementById('le');
-    er.classList.remove('show'); b.disabled = true; b.textContent = 'در حال ورود...';
-    try {
-        var r = await A.p('/api/login', {
-            username: document.getElementById('lu').value.trim(),
-            password: document.getElementById('lpw').value.trim()
-        });
-        window.location.href = r.redirect;
-    } catch(err) {
-        er.textContent = err.message; er.classList.add('show');
-        b.disabled = false; b.textContent = 'ورود به سیستم';
-    }
-}
-document.getElementById('lu').focus();
-</script>
+
+    <script src="/script.js"></script>
 </body>
 </html>
