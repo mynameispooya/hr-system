@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ورود - سیستم مدیریت منابع انسانی</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="lp">
+  <div class="lbg"></div>
+  <div class="lc">
+    <div class="llo">
+      <div class="lbx">HR</div>
+      <h1>سیستم مدیریت منابع انسانی</h1>
+      <p>برای ورود نام کاربری و کد ورود خود را وارد کنید</p>
+    </div>
+    <div id="le" class="le"></div>
+    <form id="lf" onsubmit="hl(event)">
+      <div class="fg">
+        <label class="fl">نام کاربری</label>
+        <input type="text" id="lu" placeholder="نام کاربری" autocomplete="username" required>
+      </div>
+      <div class="fg">
+        <label class="fl">کد ورود</label>
+        <input type="password" id="lpw" placeholder="کد ورود" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-p" style="width:100%;justify-content:center;margin-top:8px" id="lbtn">ورود به سیستم</button>
+    </form>
+  </div>
+</div>
+<div id="tc"></div>
+<script src="/app.js"></script>
+<script>
+async function hl(e) {
+    e.preventDefault();
+    var b = document.getElementById('lbtn'), er = document.getElementById('le');
+    er.classList.remove('show'); b.disabled = true; b.textContent = 'در حال ورود...';
+    try {
+        var r = await A.p('/api/login', {
+            username: document.getElementById('lu').value.trim(),
+            password: document.getElementById('lpw').value.trim()
+        });
+        window.location.href = r.redirect;
+    } catch(err) {
+        er.textContent = err.message; er.classList.add('show');
+        b.disabled = false; b.textContent = 'ورود به سیستم';
+    }
+}
+document.getElementById('lu').focus();
+</script>
+</body>
+</html>
