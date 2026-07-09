@@ -826,7 +826,9 @@ def api_change_pw():
     add_audit(data, 'change_password', session['username'], 'تغییر کد ورود مدیر')
     save_data(data)
     return jsonify({'message': 'تغییر کرد'})
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
