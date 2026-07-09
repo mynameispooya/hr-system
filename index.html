@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>داشبورد | سیستم مدیریت منابع انسانی</title>
+    <link rel="stylesheet" href="/style.css">
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+</head>
+<body class="dashboard-page">
+    <!-- Header -->
+    <header class="dashboard-header">
+        <div class="header-right">
+            <button class="menu-toggle" id="menu-toggle" aria-label="منو">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+            </button>
+            <h1 class="header-title">سیستم مدیریت منابع انسانی</h1>
+        </div>
+        <div class="header-left">
+            <div class="header-clock" id="header-clock"></div>
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="dashboard-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <!-- Content will be rendered by JavaScript -->
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Announcements -->
+            <div class="announcements-panel" id="announcements-container">
+                <!-- Announcements will be rendered here -->
+            </div>
+
+            <!-- Dynamic Content -->
+            <div id="main-content">
+                <!-- Content will be rendered by JavaScript -->
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <p>در حال بارگذاری...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Mobile Overlay -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <script src="/script.js"></script>
+</body>
+</html>
