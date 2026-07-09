@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>مدیریت - سیستم منابع انسانی</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="header">
+  <div class="hlogo"><div class="lb">HR</div><span>پنل مدیریت</span></div>
+  <div class="hacts">
+    <span class="huser">مدیر سیستم</span>
+    <div style="position:relative">
+      <button class="nbtn" onclick="tn()" id="nt">&#x1F514;<span class="nbdg" id="nc" style="display:none">0</span></button>
+      <div class="ndd" id="nd">
+        <div class="nddh"><h4>اعلان‌ها</h4><button class="btn btn-g btn-sm" onclick="mra()">خواندن همه</button></div>
+        <div id="nl"><div class="ne">اعلانی وجود ندارد</div></div>
+      </div>
+    </div>
+    <a href="/logout" class="btn btn-g btn-sm">خروج</a>
+  </div>
+</header>
+<div class="layout">
+  <aside class="sidebar">
+    <nav class="snav">
+      <button class="si active" data-p="ov" onclick="sp('ov')"><span class="ii">&#x1F4CA;</span><span>نمای کلی</span></button>
+      <button class="si" data-p="sec" onclick="sp('sec')"><span class="ii">&#x1F3E2;</span><span>بخش‌ها</span></button>
+      <button class="si" data-p="usr" onclick="sp('usr')"><span class="ii">&#x1F465;</span><span>کاربران</span></button>
+      <button class="si" data-p="trn" onclick="sp('trn')"><span class="ii">&#x1F504;</span><span>انتقال‌ها</span></button>
+      <button class="si" data-p="stl" onclick="sp('stl')"><span class="ii">&#x1F4B0;</span><span>تسویه‌ها</span></button>
+      <button class="si" data-p="aud" onclick="sp('aud')"><span class="ii">&#x1F4DD;</span><span>گزارش تغییرات</span></button>
+    </nav>
+    <div class="sft"><button class="si" onclick="om('mpw')"><span class="ii">&#x1F511;</span><span>تغییر کد ورود</span></button></div>
+  </aside>
+  <main class="main" id="mc">
+    <div id="p-ov" class="page active"></div>
+    <div id="p-sec" class="page"></div>
+    <div id="p-sd" class="page"></div>
+    <div id="p-usr" class="page"></div>
+    <div id="p-trn" class="page"></div>
+    <div id="p-stl" class="page"></div>
+    <div id="p-aud" class="page"></div>
+  </main>
+</div>
+
+<!-- مودال‌ها -->
+<div class="mo" id="msec"><div class="md"><div class="mh"><h3>ایجاد بخش جدید</h3><button class="mx" onclick="cm('msec')">&times;</button></div><div class="mb"><div class="fg"><label class="fl">نام بخش</label><input type="text" id="sni" placeholder="مثلاً: تولید آلبالو"></div></div><div class="mf"><button class="btn btn-p" onclick="cs()">ایجاد</button><button class="btn btn-g" onclick="cm('msec')">انصراف</button></div></div></div>
+<div class="mo" id="memp"><div class="md"><div class="mh"><h3>افزودن کارمند</h3><button class="mx" onclick="cm('memp')">&times;</button></div><div class="mb"><div id="erows"></div><button class="btn btn-g btn-sm" onclick="aer()" style="margin-top:8px">+ افزودن ردیف</button></div><div class="mf"><button class="btn btn-p" onclick="se()">ذخیره</button><button class="btn btn-g" onclick="cm('memp')">انصراف</button></div></div></div>
+<div class="mo" id="mup"><div class="md"><div class="mh"><h3>آپلود فایل اکسل</h3><button class="mx" onclick="cm('mup')">&times;</button></div><div class="mb"><p class="fh" style="margin-bottom:12px">فایل باید شامل ستون‌های «نام»، «نام خانوادگی» و «کد پرسنلی» باشد.</p><input type="file" id="efile" accept=".xlsx,.xls"></div><div class="mf"><button class="btn btn-p" onclick="ue()">آپلود</button><button class="btn btn-g" onclick="cm('mup')">انصراف</button></div></div></div>
+<div class="mo" id="mtr"><div class="md"><div class="mh"><h3>انتقال کارمند</h3><button class="mx" onclick="cm('mtr')">&times;</button></div><div class="mb"><p id="tei" style="margin-bottom:14px;font-weight:600"></p><div class="fg"><label class="fl">بخش مقصد</label><select id="tdes"></select></div></div><div class="mf"><button class="btn btn-p" onclick="ct()">انجام انتقال</button><button class="btn btn-g" onclick="cm('mtr')">انصراف</button></div></div></div>
+<div class="mo" id="musr"><div class="md"><div class="mh"><h3 id="mut">ایجاد کاربر</h3><button class="mx" onclick="cm('musr')">&times;</button></div><div class="mb"><input type="hidden" id="euid"><div class="fg"><label class="fl">نام کاربری</label><input type="text" id="uun" placeholder="نام کاربری برای ورود"></div><div class="fg"><label class="fl">کد ورود</label><input type="password" id="upw" placeholder="کد ورود"><p class="fh" id="pwh">حداقل ۳ کاراکتر</p></div><div class="fg"><label class="fl">نام نمایشی</label><input type="text" id="udn" placeholder="مثلاً: مسئول بخش آلبالو"></div></div><div class="mf"><button class="btn btn-p" onclick="su()">ذخیره</button><button class="btn btn-g" onclick="cm('musr')">انصراف</button></div></div></div>
+<div class="mo" id="mow"><div class="md"><div class="mh"><h3>تغییر مالک بخش</h3><button class="mx" onclick="cm('mow')">&times;</button></div><div class="mb"><div class="fg"><label class="fl">مالک جدید</label><select id="ownsel"></select></div></div><div class="mf"><button class="btn btn-p" onclick="co()">تغییر</button><button class="btn btn-g" onclick="cm('mow')">انصراف</button></div></div></div>
+<div class="mo" id="mpw"><div class="md"><div class="mh"><h3>تغییر کد ورود مدیر</h3><button class="mx" onclick="cm('mpw')">&times;</button></div><div class="mb"><div class="fg"><label class="fl">کد ورود فعلی</label><input type="password" id="opw"></div><div class="fg"><label class="fl">کد ورود جدید</label><input type="password" id="npw"></div></div><div class="mf"><button class="btn btn-p" onclick="cpw()">تغییر</button><button class="btn btn-g" onclick="cm('mpw')">انصراف</button></div></div></div>
+<div class="mo" id="mcf"><div class="md" style="max-width:400px"><div class="mh"><h3>تایید عملیات</h3><button class="mx" onclick="cm('mcf')">&times;</button></div><div class="mb"><p id="cfm"></p></div><div class="mf"><button class="btn btn-d" id="cfb">تایید</button><button class="btn btn-g" onclick="cm('mcf')">انصراف</button></div></div></div>
+
+<div id="tc"></div>
+<script src="/app.js"></script>
+<script>
+var S={sections:[],selSec:null,employees:[],users:[],transfers:[],settlements:[],auditLog:[],notifications:[],cp:'ov',trEid:null,sq:''};
+
+async function init(){try{await Promise.all([ls(),lu(),lt(),lst(),la(),ln()]);rp()}catch(e){toast(e.message,'e')}}
+async function ls(){S.sections=await A.g('/api/sections')}
+async function lu(){S.users=await A.g('/api/users')}
+async function lt(){S.transfers=await A.g('/api/transfers')}
+async function lst(){S.settlements=await A.g('/api/settlements')}
+async function la(){S.auditLog=await A.g('/api/audit-log')}
+async function ln(){S.notifications=await A.g('/api/notifications');var u=S.notifications.filter(function(n){return !n.read}).length;var b=document.getElementById('nc');if(u>0){b.style.display='flex';b.textContent=u>9?'9+':u}else{b.style.display='none'}rnl()}
+
+function sp(p){S.cp=p;if(p!=='sd')S.selSec=null;document.querySelectorAll('.si[data-p]').forEach(function(e){e.classList.toggle('active',e.dataset.p===p)});document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active')});var t=document.getElementById('p-'+p);if(t)t.classList.add('active');rp()}
+function rp(){var m={ov:rov,sec:rsec,sd:rsd,usr:rusr,trn:rtrn,stl:rstl,aud:raud};(m[S.cp]||rov)()}
+
+function rov(){
+  var te=S.sections.reduce(function(s,x){return s+x.employee_count},0);
+  var pn=S.transfers.filter(function(t){return t.status==='pending'}).length;
+  var h='<h2 class="pt">نمای کلی</h2><div class="sg">';
+  h+='<div class="sc"><span class="sl">تعداد بخش‌ها</span><span class="sv a1">'+S.sections.length+'</span></div>';
+  h+='<div class="sc"><span class="sl">کل کارکنان</span><span class="sv i1">'+te+'</span></div>';
+  h+='<div class="sc"><span class="sl">انتقال در انتظار</span><span class="sv w1">'+pn+'</span></div>';
+  h+='<div class="sc"><span class="sl">تسویه‌ها</span><span class="sv d1">'+S.settlements.length+'</span></div>';
+  h+='<div class="sc"><span class="sl">کاربران</span><span class="sv">'+S.users.length+'</span></div></div>';
+  
+  if(pn>0){
+    h+='<div class="card" style="border-color:var(--wnB);margin-bottom:20px"><h3 style="color:var(--wn);margin-bottom:12px;font-size:.95rem">انتقال‌های در انتظار تایید</h3>';
+    S.transfers.filter(function(t){return t.status==='pending'}).forEach(function(t){
+      h+='<div class="pc"><div class="pch"><span class="pn">'+t.employee.name+' '+t.employee.family+'</span><span class="pk">کد: '+t.employee.code+'</span></div>';
+      h+='<div class="pf">از: '+sn(t.from_section)+' ← به: '+sn(t.to_section)+' | توسط: '+t.initiated_by+'</div>';
+      h+='<div class="pa">'+trBtns(t)+'</div>'+trHist(t.history)+'</div>';
+    });h+='</div>';
+  }
+  h+='<div class="card"><h3 style="margin-bottom:14px;font-size:.95rem">آخرین فعالیت‌ها</h3>';
+  if(!S.auditLog.length)h+='<p style="color:var(--t3)">فعالیتی ثبت نشده</p>';
+  else S.auditLog.slice(0,8).forEach(function(l){h+='<div class="li"><span class="lt">'+l.timestamp+'</span><span class="la">'+al(l.action)+'</span><span class="lu">'+l.user+'</span><span class="ld">'+l.details+'</span></div>'});
+  h+='</div>';document.getElementById('p-ov').innerHTML=h;
+}
+
+function rsec(){
+  var h='<div class="tb"><h2 class="pt" style="margin-bottom:0">بخش‌ها</h2><div class="tb-sp"></div><button class="btn btn-p" onclick="om(\'msec\');document.getElementById(\'sni\').focus()">+ ایجاد بخش</button></div>';
+  if(!S.sections.length)h+='<div class="es"><div class="ei">&#x1F3E2;</div><p>بخشی ایجاد نشده است</p></div>';
+  else{h+='<div class="sec-g">';S.sections.forEach(function(s){h+='<div class="secc" onclick="osd(\''+s.id+'\')"><button class="xsec" onclick="event.stopPropagation();cds(\''+s.id+'\',\''+s.name+'\')">&times;</button><div class="sn">'+s.name+'</div><div class="scn"><span>'+s.employee_count+'</span> نفر</div><div class="sow">مالک: '+s.owner_name+'</div></div>'});h+='</div>';}
+  document.getElementById('p-sec').innerHTML=h;
+}
+
+async function cs(){var n=document.getElementById('sni').value.trim();if(!n)return toast('نام بخش را وارد کنید','e');try{await A.p('/api/sections',{name:n});toast('بخش ایجاد شد');cm('msec');document.getElementById('sni').value='';await ls();rp()}catch(e){toast(e.message,'e')}}
+function cds(id,nm){document.getElementById('cfm').textContent='آیا از حذف بخش «'+nm+'» اطمینان دارید؟ کارکنان باقی‌مانده به تسویه منتقل می‌شوند.';document.getElementById('cfb').onclick=async function(){try{await A.d('/api/sections/'+id);toast('بخش حذف شد');cm('mcf');await ls();await lu();await lt();rp()}catch(e){toast(e.message,'e')}};om('mcf')}
+
+async function osd(sid){S.selSec=sid;S.employees=await A.g('/api/sections/'+sid+'/employees');S.sq='';document.querySelectorAll('.si[data-p]').forEach(function(e){e.classList.remove('active')});document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active')});document.getElementById('p-sd').classList.add('active');S.cp='sd';rsd()}
+
+function rsd(){
+  var sec=S.sections.find(function(s){return s.id===S.selSec});if(!sec)return sp('sec');
+  var q=S.sq.toLowerCase();
+  var f=q?S.employees.filter(function(e){return (e.name+' '+e.family+' '+e.code).toLowerCase().includes(q)}):S.employees;
+  var other=S.sections.filter(function(s){return s.id!==S.selSec});
+  
+  var h='<div class="tb"><button class="btn btn-g btn-sm" onclick="sp(\'sec\')">&#x2190; بازگشت</button><div class="tb-sp"></div>';
+  h+='<button class="btn btn-g btn-sm" onclick="owm(\''+S.selSec+'\')">&#x1F464; تغییر مالک</button>';
+  h+='<button class="btn btn-g btn-sm" onclick="window.open(\'/api/sections/'+S.selSec+'/export\',\'_blank\')">&#x1F4E5; خروجی اکسل</button>';
+  h+='<button class="btn btn-g btn-sm" onclick="om(\'mup\')">&#x1F4C1; آپلود اکسل</button>';
+  h+='<button class="btn btn-p btn-sm" onclick="oae()">+ افزودن کارمند</button></div>';
+  h+='<h2 class="pt">'+sec.name+' <span style="font-size:.85rem;color:var(--t3);font-weight:400">('+f.length+' نفر)</span></h2>';
+  
+  h+='<div class="tb"><div class="sb"><span class="sic">&#x1F50D;</span><input type="text" placeholder="جستجو بر اساس نام، نام خانوادگی یا کد پرسنلی..." value="'+S.sq+'" oninput="S.sq=this.value;safeRender(rsd)"></div></div>';
+  
+  if(!f.length)h+='<div class="es"><div class="ei">&#x1F464;</div><p>کارمندی وجود ندارد</p></div>';
+  else{
+    h+='<div class="tw" style="margin-bottom:16px"><table><thead><tr><th>ردیف</th><th>نام</th><th>نام خانوادگی</th><th>کد پرسنلی</th><th>عملیات</th></tr></thead><tbody>';
+    f.forEach(function(e,i){
+      h+='<tr draggable="true" ondragstart="ds(event,\''+e.id+'\',\''+e.name+' '+e.family+'\',\''+e.code+'\')" ondragend="de(event)">';
+      h+='<td>'+(i+1)+'</td><td>'+e.name+'</td><td>'+e.family+'</td><td style="font-weight:600;direction:ltr;text-align:right">'+e.code+'</td>';
+      h+='<td><button class="btn btn-g btn-sm" onclick="stm(\''+e.id+'\',\''+e.name+' '+e.family+'\',\''+e.code+'\')" title="انتقال">&#x1F504;</button>';
+      h+='<button class="btn btn-g btn-sm" onclick="stl(\''+e.id+'\',\''+e.name+' '+e.family+'\')" title="تسویه" style="color:var(--wn)">&#x1F4B0;</button>';
+      h+='<button class="btn btn-d btn-sm btn-ic" onclick="cde(\''+e.id+'\',\''+e.name+' '+e.family+'\')" title="حذف">&times;</button></td></tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  
+  if(other.length>0){
+    h+='<div class="dzs"><div class="dz" ondragover="event.preventDefault();this.classList.add(\'da\')" ondragleave="this.classList.remove(\'da\')" ondrop="dt(event)"><span class="di">&#x1F504;</span><span class="dl">انتقال به بخش دیگر</span><span class="dh">کارمند را اینجا رها کنید</span></div>';
+    h+='<div class="dz sz" ondragover="event.preventDefault();this.classList.add(\'da\')" ondragleave="this.classList.remove(\'da\')" ondrop="dsel(event)"><span class="di">&#x1F4B0;</span><span class="dl">انتقال به تسویه</span><span class="dh">کارمند را اینجا رها کنید</span></div></div>';
+  }
+  document.getElementById('p-sd').innerHTML=h;
+}
+
+function owm(sid){var sel=document.getElementById('ownsel');sel.innerHTML='<option value="">مدیر سیستم</option>'+S.users.map(function(u){return '<option value="'+u.id+'">'+u.display_name+' ('+u.username+')</option>'}).join('');var sec=S.sections.find(function(s){return s.id===sid});sel.value=sec&&sec.owner?sec.owner:'';om('mow');document.getElementById('ownsel').dataset.sid=sid}
+async function co(){var sid=document.getElementById('ownsel').dataset.sid;var ow=document.getElementById('ownsel').value||null;try{await A.u('/api/sections/'+sid+'/owner',{owner:ow});toast('مالک تغییر کرد');cm('mow');await ls();rp()}catch(e){toast(e.message,'e')}}
+
+function rusr(){
+  var h='<div class="tb"><h2 class="pt" style="margin-bottom:0">کاربران</h2><div class="tb-sp"></div><button class="btn btn-p" onclick="oum()">+ ایجاد کاربر</button></div>';
+  if(!S.users.length)h+='<div class="es"><div class="ei">&#x1F465;</div><p>کاربری ایجاد نشده</p></div>';
+  else{h+='<div class="tw"><table><thead><tr><th>نام کاربری</th><th>نام نمایشی</th><th>تعداد بخش‌ها</th><th>عملیات</th></tr></thead><tbody>';
+    S.users.forEach(function(u){h+='<tr><td style="direction:ltr;text-align:right">'+u.username+'</td><td>'+u.display_name+'</td><td>'+u.section_count+'</td><td><button class="btn btn-g btn-sm" onclick="eu(\''+u.id+'\')">ویرایش</button><button class="btn btn-d btn-sm" onclick="cdu(\''+u.id+'\',\''+u.display_name+'\')">حذف</button></td></tr>'});
+    h+='</tbody></table></div>';}
+  document.getElementById('p-usr').innerHTML=h;
+}
+
+function oum(){document.getElementById('mut').textContent='ایجاد کاربر';document.getElementById('euid').value='';document.getElementById('uun').value='';document.getElementById('uun').disabled=false;document.getElementById('upw').value='';document.getElementById('udn').value='';document.getElementById('pwh').textContent='حداقل ۳ کاراکتر';om('musr')}
+function eu(id){document.getElementById('mut').textContent='ویرایش کاربر';document.getElementById('euid').value=id;var u=S.users.find(function(x){return x.id===id});if(u){document.getElementById('uun').value=u.username;document.getElementById('uun').disabled=true;document.getElementById('upw').value='';document.getElementById('udn').value=u.display_name;document.getElementById('pwh').textContent='خالی بگذارید برای بدون تغییر'}om('musr')}
+async function su(){var eid=document.getElementById('euid').value,un=document.getElementById('uun').value.trim(),pw=document.getElementById('upw').value.trim(),dn=document.getElementById('udn').value.trim();if(!un)return toast('نام کاربری الزامی است','e');if(!eid&&!pw)return toast('کد ورود الزامی است','e');try{if(eid){var b={display_name:dn};if(pw)b.password=pw;await A.u('/api/users/'+eid,b);toast('ویرایش شد')}else{await A.p('/api/users',{username:un,password:pw,display_name:dn});toast('کاربر ایجاد شد')}cm('musr');await lu();rp()}catch(e){toast(e.message,'e')}}
+function cdu(id,nm){document.getElementById('cfm').textContent='آیا از حذف کاربر «'+nm+'» اطمینان دارید؟ بخش‌های او به مدیر منتقل می‌شوند.';document.getElementById('cfb').onclick=async function(){try{await A.d('/api/users/'+id);toast('حذف شد');cm('mcf');await lu();await ls();rp()}catch(e){toast(e.message,'e')}};om('mcf')}
+
+function rtrn(){
+  var el=document.getElementById('p-trn'),sel=el.querySelector('.tf');var fv=sel?sel.value:'all';
+  var fl=fv==='all'?S.transfers:S.transfers.filter(function(t){return t.status===fv});
+  var h='<div class="tb"><h2 class="pt" style="margin-bottom:0">انتقال‌ها</h2><div class="tb-sp"></div><select class="tf" onchange="safeRender(rtrn)" style="width:auto"><option value="all"'+(fv==='all'?' selected':'')+'>همه</option><option value="pending"'+(fv==='pending'?' selected':'')+'>در انتظار</option><option value="accepted"'+(fv==='accepted'?' selected':'')+'>پذیرفته شده</option><option value="completed"'+(fv==='completed'?' selected':'')+'>تکمیل شده</option><option value="rejected"'+(fv==='rejected'?' selected':'')+'>رد شده</option></select></div>';
+  if(!fl.length)h+='<div class="es"><div class="ei">&#x1F504;</div><p>انتقالی یافت نشد</p></div>';
+  else{
+    h+='<div class="tw"><table><thead><tr><th>کارمند</th><th>کد پرسنلی</th><th>از بخش</th><th>به بخش</th><th>وضعیت</th><th>توسط</th><th>عملیات</th></tr></thead><tbody>';
+    fl.forEach(function(t){
+      h+='<tr><td>'+t.employee.name+' '+t.employee.family+'</td><td style="direction:ltr;text-align:right">'+t.employee.code+'</td><td>'+sn(t.from_section)+'</td><td>'+sn(t.to_section)+'</td>';
+      h+='<td><span class="badge b-'+sc(t.status)+'">'+sl(t.status)+'</span></td><td>'+t.initiated_by+'</td><td>'+trBtns(t)+'</td></tr>';
+      h+='<tr><td colspan="7" style="padding:0 16px;background:var(--bg1)">'+trHist(t.history)+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  document.getElementById('p-trn').innerHTML=h;
+}
+
+async function at(tid){try{await A.p('/api/transfers/'+tid+'/accept',{});toast('پذیرفته شد');await ls();await lt();await ln();safeRender(rp)}catch(e){toast(e.message,'e')}}
+async function rt(tid){try{await A.p('/api/transfers/'+tid+'/reject',{});toast('رد شد');await ls();await lt();await ln();safeRender(rp)}catch(e){toast(e.message,'e')}}
+
+function rstl(){
+  var h='<div class="tb"><h2 class="pt" style="margin-bottom:0">تسویه‌ها</h2><div class="tb-sp"></div><button class="btn btn-g btn-sm" onclick="window.open(\'/api/settlements/export\',\'_blank\')">&#x1F4E5; خروجی اکسل</button></div>';
+  if(!S.settlements.length)h+='<div class="es"><div class="ei">&#x1F4B0;</div><p>تسویه‌ای ثبت نشده</p></div>';
+  else{h+='<div class="tw"><table><thead><tr><th>کارمند</th><th>کد پرسنلی</th><th>بخش مبدأ</th><th>توسط</th><th>تاریخ</th></tr></thead><tbody>';
+    S.settlements.forEach(function(s){h+='<tr><td>'+s.employee.name+' '+s.employee.family+'</td><td style="direction:ltr;text-align:right">'+s.employee.code+'</td><td>'+s.from_section_name+'</td><td>'+s.initiated_by+'</td><td style="font-size:.82rem;color:var(--t3);white-space:nowrap">'+s.timestamp+'</td></tr>'});
+    h+='</tbody></table></div>';}
+  document.getElementById('p-stl').innerHTML=h;
+}
+
+function raud(){
+  var h='<div class="tb"><h2 class="pt" style="margin-bottom:0">گزارش تغییرات</h2><div class="tb-sp"></div><button class="btn btn-g btn-sm" onclick="window.open(\'/api/audit-log/export\',\'_blank\')">&#x1F4E5; خروجی اکسل</button></div>';
+  if(!S.auditLog.length)h+='<div class="es"><div class="ei">&#x1F4DD;</div><p>فعالیتی ثبت نشده</p></div>';
+  else{h+='<div class="card">';S.auditLog.forEach(function(l){h+='<div class="li"><span class="lt">'+l.timestamp+'</span><span class="la">'+al(l.action)+'</span><span class="lu">'+l.user+'</span><span class="ld">'+l.details+'</span></div>'});h+='</div>';}
+  document.getElementById('p-aud').innerHTML=h;
+}
+
+async function cpw(){var o=document.getElementById('opw').value,n=document.getElementById('npw').value.trim();if(!o||!n)return toast('هر دو فیلد الزامی است','e');try{await A.p('/api/admin/change-password',{old_password:o,new_password:n});toast('تغییر کرد');cm('mpw');document.getElementById('opw').value='';document.getElementById('npw').value=''}catch(e){toast(e.message,'e')}}
+
+document.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>
